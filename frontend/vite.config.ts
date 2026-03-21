@@ -12,4 +12,7 @@ export default defineConfig({
       "/tiles": "http://localhost:8000",
     },
   },
+  optimizeDeps: {
+    include: ["resium", "cesium"],
+  },
 });

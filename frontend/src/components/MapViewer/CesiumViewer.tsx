@@ -1,119 +1,156 @@
-import { useRef, useCallback } from "react";
-import { Viewer, Globe, CameraFlyTo } from "resium";
-import {
-  Cartesian3,
-  Ion,
-  SceneMode,
-  Color,
-  ScreenSpaceEventType,
-  defined,
-  Cesium3DTileset as Cesium3DTilesetClass,
-  Model,
-  Transforms,
-  HeadingPitchRoll,
-} from "cesium";
-import type { CesiumComponentRef } from "resium";
-import type { Viewer as CesiumViewer } from "cesium";
-import { MAPO_CENTER, TILES_URL } from "../../utils/constants";
-import { getBuildingDetail, getBuildings } from "../../api/client";
+import { useRef, useEffect } from "react";
+import * as Cesium from "cesium";
+import { MAPO_CENTER } from "../../utils/constants";
+import { getBuildings, getBuildingDetail } from "../../api/client";
 import { useAppStore } from "../../store/appStore";
+import { getEnergyColor, getGradeColor } from "../../utils/energyGradeColors";
 
-Ion.defaultAccessToken =
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiI0ZjY0NjI1Mi01NWRiLTRmMjAtOTU2NS02YTcwMTk2NjZlNjEiLCJpZCI6MjU5LCJpYXQiOjE3MjY0MDk2OTZ9.demo";
+Cesium.Ion.defaultAccessToken = import.meta.env.VITE_CESIUM_ION_TOKEN ?? "";
+const GOOGLE_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY ?? "";
 
-// Free Cesium Ion token - replace with your own from https://ion.cesium.com/tokens
-// For MVP, terrain and imagery will work without a valid token (fallback to ellipsoid)
-
-export default function MapViewerComponent() {
-  const viewerRef = useRef<CesiumComponentRef<CesiumViewer>>(null);
-  const modelLoaded = useRef(false);
+export default function CesiumViewerComponent() {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const viewerRef = useRef<Cesium.Viewer | null>(null);
   const selectBuilding = useAppStore((s) => s.selectBuilding);
+  const setLoadingDetail = useAppStore((s) => s.setLoadingDetail);
+  const setError = useAppStore((s) => s.setError);
 
-  const handleViewerReady = useCallback((viewer: CesiumViewer) => {
-    // Load GLB model
-    if (!modelLoaded.current) {
-      modelLoaded.current = true;
-      loadBuildingModel(viewer);
-    }
+  useEffect(() => {
+    if (!containerRef.current || viewerRef.current) return;
+    containerRef.current.innerHTML = "";
 
-    // Click handler for building selection
+    const viewer = new Cesium.Viewer(containerRef.current, {
+      sceneMode: Cesium.SceneMode.SCENE3D,
+      animation: false,
+      timeline: false,
+      geocoder: false,
+      homeButton: false,
+      baseLayerPicker: false,
+      navigationHelpButton: false,
+      fullscreenButton: false,
+      sceneModePicker: false,
+      selectionIndicator: false,
+      infoBox: false,
+    });
+
+    viewerRef.current = viewer;
+
+    // Load Google 3D Tiles (photorealistic buildings + terrain)
+    loadGoogle3DTiles(viewer).catch(() => {});
+
+    // Load energy data markers on top of Google buildings
+    loadEnergyMarkers(viewer).catch(() => {});
+
+    // Fly to 마포구
+    viewer.camera.flyTo({
+      destination: Cesium.Cartesian3.fromDegrees(
+        MAPO_CENTER.lng,
+        MAPO_CENTER.lat,
+        800
+      ),
+      orientation: {
+        heading: Cesium.Math.toRadians(20),
+        pitch: Cesium.Math.toRadians(-40),
+        roll: 0,
+      },
+      duration: 2,
+    });
+
+    // Click handler
     viewer.screenSpaceEventHandler.setInputAction(
       async (event: { position: { x: number; y: number } }) => {
         const picked = viewer.scene.pick(event.position);
-        if (defined(picked)) {
-          // Try to get PNU from picked feature
-          const pnu = picked?.id?.properties?.pnu?.getValue?.();
+        if (Cesium.defined(picked) && picked.id) {
+          const entity = picked.id as Cesium.Entity;
+          const pnu = entity.properties?.pnu?.getValue(Cesium.JulianDate.now());
           if (pnu) {
             try {
+              setLoadingDetail(true);
               const detail = await getBuildingDetail(pnu);
               selectBuilding(pnu, detail);
             } catch {
-              /* ignore */
+              setError("건물 정보를 불러올 수 없습니다");
             }
           }
         }
       },
-      ScreenSpaceEventType.LEFT_CLICK
+      Cesium.ScreenSpaceEventType.LEFT_CLICK
     );
-  }, [selectBuilding]);
 
-  return (
-    <Viewer
-      ref={viewerRef}
-      full
-      sceneMode={SceneMode.SCENE3D}
-      animation={false}
-      timeline={false}
-      geocoder={false}
-      homeButton={false}
-      baseLayerPicker={false}
-      navigationHelpButton={false}
-      fullscreenButton={false}
-      sceneModePicker={false}
-      selectionIndicator={false}
-      infoBox={false}
-      onReady={handleViewerReady}
-    >
-      <Globe
-        baseColor={Color.fromCssColorString("#e8e6e3")}
-        enableLighting={false}
-      />
-      <CameraFlyTo
-        destination={Cartesian3.fromDegrees(
-          MAPO_CENTER.lng,
-          MAPO_CENTER.lat,
-          3000
-        )}
-        orientation={{
-          heading: 0,
-          pitch: -0.8,
-          roll: 0,
-        }}
-        duration={0}
-      />
-    </Viewer>
-  );
+    return () => {
+      if (viewerRef.current && !viewerRef.current.isDestroyed()) {
+        viewerRef.current.destroy();
+        viewerRef.current = null;
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return <div ref={containerRef} style={{ width: "100%", height: "100%" }} />;
 }
 
-async function loadBuildingModel(viewer: CesiumViewer) {
-  try {
-    const position = Cartesian3.fromDegrees(MAPO_CENTER.lng, MAPO_CENTER.lat, 0);
-    const modelMatrix = Transforms.headingPitchRollToFixedFrame(
-      position,
-      new HeadingPitchRoll(0, 0, 0)
-    );
+// --- Google Photorealistic 3D Tiles ---
+async function loadGoogle3DTiles(viewer: Cesium.Viewer) {
+  const tileset = await Cesium.createGooglePhotorealistic3DTileset(
+    GOOGLE_API_KEY,
+    { showCreditsOnScreen: true }
+  );
+  if (viewer.isDestroyed()) return;
 
-    const model = await Model.fromGltfAsync({
-      url: TILES_URL,
-      modelMatrix,
-      scale: 1.0,
-      minimumPixelSize: 64,
-      maximumScale: 20000,
+  viewer.scene.primitives.add(tileset);
+  viewer.scene.globe.show = false;
+  console.log("Google Photorealistic 3D Tiles loaded");
+}
+
+// --- Energy markers (colored circles on building rooftops) ---
+async function loadEnergyMarkers(viewer: Cesium.Viewer) {
+  const data = await getBuildings({
+    west: 126.89, south: 37.53, east: 126.96, north: 37.58,
+  });
+
+  if (viewer.isDestroyed()) return;
+  console.log(`Loading ${data.features.length} energy markers`);
+
+  const ds = new Cesium.CustomDataSource("energy-markers");
+
+  for (const feature of data.features) {
+    const props = feature.properties;
+    if (!props.pnu || !props.lng || !props.lat) continue;
+
+    const buildingHeight = props.height ?? 10;
+    // 마포구 해발 + 건물 높이 + 약간의 오프셋
+    const markerHeight = 30 + buildingHeight + 3;
+
+    // Color by energy grade or consumption
+    let colorStr: string;
+    if (props.energy_grade && props.energy_grade.trim() !== "") {
+      colorStr = getGradeColor(props.energy_grade);
+    } else {
+      colorStr = getEnergyColor(props.total_energy);
+    }
+    const color = Cesium.Color.fromCssColorString(colorStr);
+
+    ds.entities.add({
+      position: Cesium.Cartesian3.fromDegrees(props.lng, props.lat, markerHeight),
+      point: {
+        pixelSize: 8,
+        color: color,
+        outlineColor: Cesium.Color.BLACK.withAlpha(0.5),
+        outlineWidth: 1,
+        disableDepthTestDistance: Number.POSITIVE_INFINITY,
+        scaleByDistance: new Cesium.NearFarScalar(200, 1.5, 3000, 0.5),
+      },
+      properties: {
+        pnu: props.pnu,
+        building_name: props.building_name,
+        usage_type: props.usage_type,
+        energy_grade: props.energy_grade,
+        total_energy: props.total_energy,
+      } as any,
     });
-
-    viewer.scene.primitives.add(model);
-    console.log("Building GLB model loaded");
-  } catch (e) {
-    console.warn("Failed to load building model:", e);
   }
+
+  if (viewer.isDestroyed()) return;
+  await viewer.dataSources.add(ds);
+  console.log(`${ds.entities.values.length} energy markers added`);
 }

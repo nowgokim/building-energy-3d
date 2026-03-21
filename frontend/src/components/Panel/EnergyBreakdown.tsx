@@ -33,7 +33,7 @@ export default function EnergyBreakdown({ energy }: Props) {
   return (
     <div>
       <div className="text-xs text-gray-600 mb-1">
-        총 {energy.total_energy.toFixed(1)} kWh/m²/yr
+        총 {energy.total_energy?.toFixed(1) ?? "-"} kWh/m²/yr
       </div>
       <ResponsiveContainer width="100%" height={140}>
         <BarChart data={data} layout="vertical" margin={{ left: 4, right: 8 }}>
@@ -50,7 +50,7 @@ export default function EnergyBreakdown({ energy }: Props) {
           />
           <Bar dataKey="value" radius={[0, 4, 4, 0]}>
             {data.map((d) => (
-              <Cell key={d.name} fill={CATEGORY_COLORS[d.name]} />
+              <Cell key={d.name} fill={CATEGORY_COLORS[d.name] ?? "#ccc"} />
             ))}
           </Bar>
         </BarChart>

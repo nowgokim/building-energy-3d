@@ -9,7 +9,8 @@ export default function StatsBar() {
 
   useEffect(() => {
     getStats().then(setStats).catch(console.error);
-  }, [setStats]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   if (!stats) return null;
 

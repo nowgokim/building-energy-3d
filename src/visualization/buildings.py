@@ -158,7 +158,7 @@ def list_buildings(
         FROM buildings_enriched b
         LEFT JOIN energy_results er ON b.pnu = er.pnu
         {where_clause}
-        LIMIT 1000
+        LIMIT 5000
     """)
 
     rows = db.execute(sql, params).fetchall()
@@ -200,6 +200,10 @@ def get_building_detail(
     db: Session = Depends(get_db_dependency),
 ) -> dict:
     """Retrieve a single building with full attributes and energy results."""
+    import re
+    if not re.match(r"^\d{19,25}$", pnu):
+        raise HTTPException(status_code=400, detail="Invalid PNU format")
+
     sql = text("""
         SELECT
             b.pnu,
