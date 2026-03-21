@@ -39,11 +39,11 @@ SELECT
 
     -- 원형 분류
     CASE
-        WHEN COALESCE(LEFT(l.use_apr_day, 4), LEFT(f.approval_date, 4), '1970')::INTEGER < 1980
+        WHEN COALESCE(NULLIF(LEFT(NULLIF(l.use_apr_day,''), 4),''), NULLIF(LEFT(NULLIF(f.approval_date,''), 4),''), '1970')::INTEGER < 1980
             THEN 'pre-1980'
-        WHEN COALESCE(LEFT(l.use_apr_day, 4), LEFT(f.approval_date, 4), '1970')::INTEGER <= 2000
+        WHEN COALESCE(NULLIF(LEFT(NULLIF(l.use_apr_day,''), 4),''), NULLIF(LEFT(NULLIF(f.approval_date,''), 4),''), '1970')::INTEGER <= 2000
             THEN '1980-2000'
-        WHEN COALESCE(LEFT(l.use_apr_day, 4), LEFT(f.approval_date, 4), '1970')::INTEGER <= 2010
+        WHEN COALESCE(NULLIF(LEFT(NULLIF(l.use_apr_day,''), 4),''), NULLIF(LEFT(NULLIF(f.approval_date,''), 4),''), '1970')::INTEGER <= 2010
             THEN '2001-2010'
         ELSE 'post-2010'
     END AS vintage_class,
@@ -76,7 +76,7 @@ WHERE f.geom IS NOT NULL
   AND ST_IsValid(f.geom);
 
 -- 인덱스
-CREATE UNIQUE INDEX IF NOT EXISTS idx_enriched_gid ON buildings_enriched(gid);
+CREATE INDEX IF NOT EXISTS idx_enriched_gid ON buildings_enriched(gid);
 CREATE INDEX IF NOT EXISTS idx_enriched_geom ON buildings_enriched USING GIST(geom);
 CREATE INDEX IF NOT EXISTS idx_enriched_pnu ON buildings_enriched(pnu);
 CREATE INDEX IF NOT EXISTS idx_enriched_usage ON buildings_enriched(usage_type);

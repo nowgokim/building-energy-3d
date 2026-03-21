@@ -1,7 +1,7 @@
 """Korean building ledger (건축물대장) API collector.
 
-Collects building ledger data for 마포구 (Mapo-gu) using the PublicDataReader
-library, which wraps the 국토교통부 건축물대장 공공데이터 API.
+Collects building ledger data for 마포구 (Mapo-gu) by directly calling
+the 국토교통부 건축HUB 건축물대장 API (HTTPS).
 
 Usage:
     stats = collect_mapo_ledger(api_key="YOUR_KEY", db_url="postgresql://...")
@@ -9,132 +9,202 @@ Usage:
 
 import logging
 import time
-from typing import Any, Dict
+from typing import Any, Dict, List
+from xml.etree import ElementTree
 
+import httpx
 import pandas as pd
-import PublicDataReader as pdr
 from sqlalchemy import create_engine
 
 logger = logging.getLogger(__name__)
 
-# 대지구분코드 mapping: API response value -> PNU value
-DAEJI_GUBUN_MAP: Dict[str, str] = {
-    "0": "1",  # 대지
-    "1": "2",  # 산
-    "2": "3",  # 블록
-}
-
+BASE_URL = "https://apis.data.go.kr/1613000/BldRgstHubService"
 MAPO_SIGUNGU_CODE = "11440"
 
+# 마포구 법정동 코드 목록 (현존하는 동)
+MAPO_BDONG_CODES: List[str] = [
+    "10100",  # 아현동
+    "10200",  # 공덕동
+    "10300",  # 신공덕동
+    "10400",  # 도화동
+    "10500",  # 용강동
+    "10600",  # 토정동
+    "10700",  # 마포동
+    "10800",  # 대흥동
+    "10900",  # 염리동
+    "11000",  # 노고산동
+    "11100",  # 신수동
+    "11200",  # 현석동
+    "11300",  # 구수동
+    "11400",  # 창전동
+    "11500",  # 상수동
+    "11600",  # 하중동
+    "11700",  # 합정동
+    "11800",  # 망원동
+    "11900",  # 연남동
+    "12000",  # 서교동
+    "12100",  # 동교동
+    "12200",  # 성산동
+    "12300",  # 상암동
+    "12400",  # 중동
+]
 
-def _generate_pnu_from_row(row: pd.Series) -> str:
-    """Generate a 19-digit PNU code from a ledger row.
 
-    PNU structure (19 digits):
-        시군구코드(5) + 법정동코드(5) + 대지구분코드(1) + 번(4) + 지(4)
-
-    Args:
-        row: A pandas Series containing 시군구코드, 법정동코드,
-             대지구분코드, 번, 지 fields.
+def _fetch_ledger_page(
+    api_key: str,
+    sigungu_cd: str,
+    bdong_cd: str,
+    page: int = 1,
+    num_rows: int = 100,
+) -> tuple[list[dict], int]:
+    """Fetch one page of 총괄표제부 data from the API.
 
     Returns:
-        19-digit PNU string.
+        Tuple of (list of item dicts, total count).
     """
-    sigungu = str(row.get("시군구코드", "")).strip()
-    bdong = str(row.get("법정동코드", "")).strip()
-    daeji_raw = str(row.get("대지구분코드", "0")).strip()
-    bon = str(row.get("번", "0")).strip()
-    ji = str(row.get("지", "0")).strip()
+    resp = httpx.get(
+        f"{BASE_URL}/getBrRecapTitleInfo",
+        params={
+            "serviceKey": api_key,
+            "sigunguCd": sigungu_cd,
+            "bjdongCd": bdong_cd,
+            "numOfRows": str(num_rows),
+            "pageNo": str(page),
+        },
+        timeout=30.0,
+    )
 
-    daeji = DAEJI_GUBUN_MAP.get(daeji_raw, "1")
-    bon_padded = bon.zfill(4)
-    ji_padded = ji.zfill(4)
+    if resp.status_code != 200:
+        logger.warning("API returned status %d for bdong %s page %d", resp.status_code, bdong_cd, page)
+        return [], 0
 
-    return f"{sigungu}{bdong}{daeji}{bon_padded}{ji_padded}"
+    # Parse XML response
+    root = ElementTree.fromstring(resp.text)
+
+    result_code = root.findtext(".//resultCode", "")
+    if result_code != "00":
+        msg = root.findtext(".//resultMsg", "")
+        logger.warning("API error: code=%s msg=%s (bdong=%s)", result_code, msg, bdong_cd)
+        return [], 0
+
+    total_count = int(root.findtext(".//totalCount", "0"))
+    items = []
+    for item_el in root.findall(".//item"):
+        item = {}
+        for child in item_el:
+            item[child.tag] = child.text.strip() if child.text else ""
+        items.append(item)
+
+    return items, total_count
+
+
+def _generate_pnu(row: dict) -> str:
+    """Generate a 19-digit PNU code from a ledger item dict."""
+    sigungu = row.get("sigunguCd", "")
+    bdong = row.get("bjdongCd", "")
+    plat_gb = row.get("platGbCd", "0")
+    bun = row.get("bun", "0").zfill(4)
+    ji = row.get("ji", "0").zfill(4)
+
+    # 대지구분코드: 0→1(대지), 1→2(산)
+    daeji_map = {"0": "1", "1": "2", "2": "3"}
+    daeji = daeji_map.get(plat_gb, "1")
+
+    return f"{sigungu}{bdong}{daeji}{bun}{ji}"
+
+
+def _items_to_dataframe(items: list[dict]) -> pd.DataFrame:
+    """Convert raw API items to a DataFrame matching building_ledger schema."""
+    records = []
+    for item in items:
+        pnu = _generate_pnu(item)
+        records.append({
+            "pnu": pnu,
+            "bld_mgt_sn": item.get("mgmBldrgstPk", ""),
+            "bld_nm": item.get("bldNm", "").strip(),
+            "dong_nm": "",
+            "main_purps_cd": item.get("mainPurpsCd", ""),
+            "main_purps_nm": item.get("mainPurpsCdNm", "").strip(),
+            "strct_cd": "",
+            "strct_nm": "",
+            "grnd_flr_cnt": None,
+            "ugrnd_flr_cnt": None,
+            "bld_ht": None,
+            "tot_area": float(item["totArea"]) if item.get("totArea") else None,
+            "bld_area": float(item["archArea"]) if item.get("archArea") else None,
+            "use_apr_day": item.get("useAprDay", "").strip(),
+            "enrgy_eff_rate": item.get("engrGrade", "").strip() or None,
+            "epi_score": float(item["engrEpi"]) if item.get("engrEpi") and item["engrEpi"].strip() != "0" else None,
+        })
+    return pd.DataFrame(records)
 
 
 def collect_mapo_ledger(api_key: str, db_url: str) -> Dict[str, Any]:
     """Collect building ledger data for all 법정동 in 마포구.
 
-    Uses PublicDataReader to fetch 총괄표제부 (general title section) data
-    for every 법정동 within 마포구 (시군구코드 11440), generates PNU codes,
-    and stores results in a PostgreSQL database.
+    Directly calls the 건축HUB API (HTTPS) to fetch 총괄표제부 data
+    for each 법정동, generates PNU codes, and stores in PostgreSQL.
 
     Args:
-        api_key: Public data portal API service key (공공데이터포털 서비스키).
-        db_url: SQLAlchemy-compatible PostgreSQL connection URL.
-                e.g. "postgresql://user:pass@host:5432/dbname"
+        api_key: data.go.kr API service key.
+        db_url: SQLAlchemy PostgreSQL connection URL.
 
     Returns:
-        Dictionary with collection statistics:
-            - total_records (int): Total number of records saved.
-            - failed_bdongs (list[str]): List of 법정동 codes that failed.
+        Dictionary with total_records and failed_bdongs.
     """
-    logger.info("Starting 마포구 building ledger collection (시군구코드: %s)", MAPO_SIGUNGU_CODE)
-
-    # Initialize the building ledger API client
-    api = pdr.BuildingLedger(api_key)
-
-    # Retrieve 법정동 codes for 마포구
-    bdong_codes = pdr.code_bdong()
-    mapo_bdongs = bdong_codes[
-        bdong_codes["시군구코드"] == MAPO_SIGUNGU_CODE
-    ].copy()
-
-    # Filter to active (현존) 법정동 entries only
-    if "삭제일자" in mapo_bdongs.columns:
-        mapo_bdongs = mapo_bdongs[mapo_bdongs["삭제일자"].isna()]
-
-    bdong_list = mapo_bdongs["법정동코드"].unique().tolist()
-    logger.info("Found %d 법정동 codes in 마포구", len(bdong_list))
+    logger.info("Starting 마포구 building ledger collection (%d 법정동)", len(MAPO_BDONG_CODES))
 
     engine = create_engine(db_url)
     total_records = 0
     failed_bdongs: list[str] = []
 
-    for idx, bdong_code in enumerate(bdong_list, start=1):
-        logger.info(
-            "[%d/%d] Collecting ledger for 법정동 %s",
-            idx, len(bdong_list), bdong_code,
-        )
-        try:
-            df = api.get_data(
-                ledger_type="총괄표제부",
-                sigungu_code=MAPO_SIGUNGU_CODE,
-                bdong_code=bdong_code,
-            )
+    for idx, bdong_code in enumerate(MAPO_BDONG_CODES, start=1):
+        logger.info("[%d/%d] Collecting 법정동 %s", idx, len(MAPO_BDONG_CODES), bdong_code)
 
-            if df is None or df.empty:
-                logger.warning("No data returned for 법정동 %s", bdong_code)
-                time.sleep(0.5)
+        try:
+            all_items: list[dict] = []
+            page = 1
+
+            while True:
+                items, total_count = _fetch_ledger_page(
+                    api_key, MAPO_SIGUNGU_CODE, bdong_code, page=page,
+                )
+
+                if not items:
+                    break
+
+                all_items.extend(items)
+
+                if len(all_items) >= total_count:
+                    break
+
+                page += 1
+                time.sleep(0.3)
+
+            if not all_items:
+                logger.warning("No data for 법정동 %s", bdong_code)
+                time.sleep(0.3)
                 continue
 
-            # Generate PNU codes
-            df["pnu"] = df.apply(_generate_pnu_from_row, axis=1)
+            df = _items_to_dataframe(all_items)
 
-            # Persist to database
             df.to_sql(
                 name="building_ledger",
                 con=engine,
                 if_exists="append",
                 index=False,
                 method="multi",
-                chunksize=1000,
+                chunksize=500,
             )
 
-            record_count = len(df)
-            total_records += record_count
-            logger.info(
-                "Saved %d records for 법정동 %s (running total: %d)",
-                record_count, bdong_code, total_records,
-            )
+            total_records += len(df)
+            logger.info("Saved %d records for 법정동 %s (total: %d)", len(df), bdong_code, total_records)
 
         except Exception:
-            logger.exception("Failed to collect data for 법정동 %s", bdong_code)
+            logger.exception("Failed for 법정동 %s", bdong_code)
             failed_bdongs.append(bdong_code)
 
-        # Rate limiting to respect API throttle
-        time.sleep(0.5)
+        time.sleep(0.3)
 
     engine.dispose()
 
@@ -142,8 +212,5 @@ def collect_mapo_ledger(api_key: str, db_url: str) -> Dict[str, Any]:
         "total_records": total_records,
         "failed_bdongs": failed_bdongs,
     }
-    logger.info(
-        "Collection complete. Total records: %d, Failed 법정동: %d",
-        total_records, len(failed_bdongs),
-    )
+    logger.info("Ledger collection complete. Total: %d, Failed: %d", total_records, len(failed_bdongs))
     return stats
