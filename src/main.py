@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 app = FastAPI(
     title="3D Building Energy Platform",
@@ -26,3 +27,6 @@ from src.visualization.search import router as search_router
 
 app.include_router(buildings_router)
 app.include_router(search_router)
+
+# 3D Tiles 정적 파일 서빙
+app.mount("/tiles", StaticFiles(directory="output_tiles"), name="tiles")
