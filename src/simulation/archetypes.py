@@ -109,7 +109,13 @@ _USAGE_KR_TO_EN: dict[str, str] = {
 
 
 def _normalize_usage(usage_type: str) -> str:
-    """Translate Korean usage types to English archetype keys."""
+    """Translate Korean usage types to English archetype keys.
+
+    Returns the English key if a mapping exists, otherwise returns the
+    input unchanged (will fall through to archetype fallback logic).
+    """
+    if not usage_type:
+        return "apartment"  # default for empty/None
     usage = usage_type.lower().strip()
     return _USAGE_KR_TO_EN.get(usage, usage)
 

@@ -7,8 +7,19 @@ import type {
 } from "../types/building";
 
 async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
-  const resp = await fetch(url, init);
-  if (!resp.ok) throw new Error(`API ${resp.status}: ${resp.statusText}`);
+  let resp: Response;
+  try {
+    resp = await fetch(url, init);
+  } catch {
+    throw new Error("서버에 연결할 수 없습니다");
+  }
+  if (!resp.ok) {
+    throw new Error(
+      resp.status === 404
+        ? "데이터를 찾을 수 없습니다"
+        : `서버 오류 (${resp.status})`
+    );
+  }
   return resp.json();
 }
 

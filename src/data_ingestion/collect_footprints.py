@@ -129,6 +129,13 @@ def load_footprints_from_shp(
     if gdf.geometry.name != "geometry":
         gdf = gdf.rename_geometry("geometry")
 
+    # Deduplicate by PNU if column exists
+    if "pnu" in gdf.columns:
+        before = len(gdf)
+        gdf = gdf.drop_duplicates(subset=["pnu"])
+        if before != len(gdf):
+            logger.info("Deduplicated by PNU: %d -> %d", before, len(gdf))
+
     # Save to PostGIS
     engine = create_engine(db_url)
     try:

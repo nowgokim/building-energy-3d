@@ -35,6 +35,19 @@ class FilterRequest(BaseModel):
     usage_types: list[str] = []
     bbox: list[float] = []  # [west, south, east, north]
 
+    @classmethod
+    def model_validator_bbox(cls, values: dict) -> dict:
+        bbox = values.get("bbox", [])
+        if bbox and len(bbox) != 4:
+            raise ValueError("bbox must have exactly 4 values: [west, south, east, north]")
+        if bbox:
+            w, s, e, n = bbox
+            if not (-180 <= w <= 180 and -180 <= e <= 180):
+                raise ValueError("bbox longitude must be between -180 and 180")
+            if not (-90 <= s <= 90 and -90 <= n <= 90):
+                raise ValueError("bbox latitude must be between -90 and 90")
+        return values
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -107,7 +120,7 @@ def _filtered_rows(db: Session, filters: FilterRequest) -> list:
 
 @router.get("/search")
 def search_buildings(
-    q: str = Query(..., min_length=1, description="Search keyword"),
+    q: str = Query(..., min_length=1, max_length=100, description="Search keyword"),
     db: Session = Depends(get_db_dependency),
 ) -> dict:
     """Search buildings by name (case-insensitive partial match).
@@ -127,7 +140,9 @@ def search_buildings(
         LIMIT 10
     """)
 
-    pattern = f"%{q}%"
+    # Escape LIKE special characters
+    safe_q = q.replace("%", r"\%").replace("_", r"\_")
+    pattern = f"%{safe_q}%"
     rows = db.execute(sql, {"pattern": pattern}).fetchall()
     logger.info("Search query='%s' returned %d results", q, len(rows))
 

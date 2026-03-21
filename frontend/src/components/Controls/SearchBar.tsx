@@ -33,15 +33,21 @@ export default function SearchBar({ onSelect }: Props) {
 
   return (
     <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10 w-96">
+      <label htmlFor="building-search" className="sr-only">건물 검색</label>
       <input
+        id="building-search"
         type="text"
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         placeholder="건물명 또는 주소 검색..."
+        role="combobox"
+        aria-expanded={isOpen}
+        aria-autocomplete="list"
+        aria-controls="search-results"
         className="w-full px-4 py-3 rounded-lg shadow-lg bg-white/95 backdrop-blur text-gray-800 text-sm outline-none focus:ring-2 focus:ring-blue-400"
       />
       {isOpen && (
-        <ul className="mt-1 bg-white/95 backdrop-blur rounded-lg shadow-lg max-h-64 overflow-y-auto">
+        <ul id="search-results" role="listbox" className="mt-1 bg-white/95 backdrop-blur rounded-lg shadow-lg max-h-64 overflow-y-auto">
           {results.map((r) => (
             <li
               key={r.pnu}

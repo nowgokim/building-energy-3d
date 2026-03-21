@@ -152,7 +152,7 @@ def list_buildings(
             b.structure_type,
             b.energy_grade,
             er.total_energy,
-            ST_AsGeoJSON(b.geom)::json AS geometry,
+            CASE WHEN b.geom IS NOT NULL THEN ST_AsGeoJSON(b.geom)::json ELSE NULL END AS geometry,
             ST_X(ST_Centroid(b.geom)) AS lng,
             ST_Y(ST_Centroid(b.geom)) AS lat
         FROM buildings_enriched b
