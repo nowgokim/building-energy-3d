@@ -39,13 +39,13 @@ SELECT
 
     -- 원형 분류
     CASE
-        WHEN COALESCE(LEFT(l.use_apr_day, 4), LEFT(f.approval_date, 4), '1990')::INTEGER < 2001
-            THEN 'pre-2001'
-        WHEN COALESCE(LEFT(l.use_apr_day, 4), LEFT(f.approval_date, 4), '1990')::INTEGER < 2010
-            THEN '2001-2009'
-        WHEN COALESCE(LEFT(l.use_apr_day, 4), LEFT(f.approval_date, 4), '1990')::INTEGER < 2017
-            THEN '2010-2016'
-        ELSE '2017-present'
+        WHEN COALESCE(LEFT(l.use_apr_day, 4), LEFT(f.approval_date, 4), '1970')::INTEGER < 1980
+            THEN 'pre-1980'
+        WHEN COALESCE(LEFT(l.use_apr_day, 4), LEFT(f.approval_date, 4), '1970')::INTEGER <= 2000
+            THEN '1980-2000'
+        WHEN COALESCE(LEFT(l.use_apr_day, 4), LEFT(f.approval_date, 4), '1970')::INTEGER <= 2010
+            THEN '2001-2010'
+        ELSE 'post-2010'
     END AS vintage_class,
 
     CASE

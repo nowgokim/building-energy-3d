@@ -90,6 +90,30 @@ _DEFAULT_END_USE: dict[str, float] = {
 # Vintage classification
 # ---------------------------------------------------------------------------
 
+_USAGE_KR_TO_EN: dict[str, str] = {
+    "공동주택": "apartment",
+    "아파트": "apartment",
+    "연립주택": "apartment",
+    "다세대주택": "apartment",
+    "업무시설": "office",
+    "사무소": "office",
+    "판매시설": "retail",
+    "근린생활시설": "retail",
+    "제1종근린생활시설": "retail",
+    "제2종근린생활시설": "retail",
+    "교육연구시설": "education",
+    "학교": "education",
+    "의료시설": "hospital",
+    "병원": "hospital",
+}
+
+
+def _normalize_usage(usage_type: str) -> str:
+    """Translate Korean usage types to English archetype keys."""
+    usage = usage_type.lower().strip()
+    return _USAGE_KR_TO_EN.get(usage, usage)
+
+
 def _classify_vintage(built_year: int) -> str:
     """Map a construction year to a vintage class label."""
     if built_year < 1980:
@@ -179,7 +203,7 @@ def match_archetype(
         ``usage_type``, ``vintage_class``, ``structure_type``, ``total_area``,
         and ``built_year``.
     """
-    usage = usage_type.lower().strip()
+    usage = _normalize_usage(usage_type)
     structure = structure_type.upper().strip() if structure_type else "RC"
     vintage = _classify_vintage(built_year)
 

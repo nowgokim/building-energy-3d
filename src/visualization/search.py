@@ -123,7 +123,7 @@ def search_buildings(
             ST_X(ST_Centroid(f.geom)) AS lng,
             ST_Y(ST_Centroid(f.geom)) AS lat
         FROM building_ledger bl
-        JOIN footprints f ON bl.pnu = f.pnu
+        JOIN building_footprints f ON bl.pnu = f.pnu
         WHERE bl.building_name ILIKE :pattern
         LIMIT 10
     """)
