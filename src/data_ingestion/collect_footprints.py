@@ -150,81 +150,93 @@ def load_footprints_from_shp(
 def load_footprints_from_vworld(
     api_key: str,
     db_url: str,
-    sigungu_code: str = "11440",
+    domain: str = "jukim.github.io",
 ) -> int:
-    """Fetch building footprints from VWorld WFS API and store in PostGIS.
+    """Fetch building footprints from VWorld data API and store in PostGIS.
 
-    Uses the VWorld data API to download building footprints for the given
-    sigungu area (default: 마포구). The API returns GeoJSON features in
-    EPSG:4326, which are directly stored in PostGIS.
+    Uses the VWorld LT_C_SPBD (건물) layer. The API limits bbox to 10km,
+    so 마포구 is split into smaller tiles.
 
     Args:
         api_key: VWorld API key.
         db_url: SQLAlchemy PostgreSQL connection URL.
-        sigungu_code: 시군구코드 to filter. Defaults to "11440" (마포구).
+        domain: Registered domain for the API key.
 
     Returns:
         Number of records loaded into the database.
     """
-    # 마포구 bbox (WGS84)
-    MAPO_BBOX = "126.89,37.53,126.97,37.58"
+    # 마포구 bbox를 ~3km 타일로 분할 (10km 제한 준수)
+    TILES = [
+        (126.890, 37.530, 126.920, 37.555),
+        (126.920, 37.530, 126.955, 37.555),
+        (126.890, 37.555, 126.920, 37.580),
+        (126.920, 37.555, 126.955, 37.580),
+    ]
 
-    logger.info("Fetching building footprints from VWorld API for 마포구")
+    logger.info("Fetching building footprints from VWorld API (LT_C_SPBD)")
 
     all_features = []
-    page = 1
-    max_pages = 100
 
-    while page <= max_pages:
-        params = {
-            "service": "data",
-            "request": "GetFeature",
-            "data": "LT_C_UPISUBD",
-            "key": api_key,
-            "domain": "localhost",
-            "format": "json",
-            "size": "1000",
-            "page": str(page),
-            "geomFilter": f"BOX({MAPO_BBOX})",
-            "crs": "EPSG:4326",
-            "attrFilter": f"sig_cd:like:{sigungu_code}",
-        }
+    for tile_idx, (w, s, e, n) in enumerate(TILES):
+        bbox_str = f"{w},{s},{e},{n}"
+        page = 1
 
-        try:
-            resp = httpx.get(
-                "https://api.vworld.kr/req/data",
-                params=params,
-                timeout=30.0,
-            )
-            data = resp.json()
-        except Exception:
-            logger.exception("VWorld API request failed (page %d)", page)
-            break
+        while page <= 100:
+            params = {
+                "service": "data",
+                "request": "GetFeature",
+                "data": "LT_C_SPBD",
+                "key": api_key,
+                "domain": domain,
+                "format": "json",
+                "size": "1000",
+                "page": str(page),
+                "geomFilter": f"BOX({bbox_str})",
+                "crs": "EPSG:4326",
+            }
 
-        response_data = data.get("response", {})
-        status = response_data.get("status", "")
+            try:
+                resp = httpx.get(
+                    "https://api.vworld.kr/req/data",
+                    params=params,
+                    timeout=30.0,
+                )
+                data = resp.json()
+            except Exception:
+                logger.exception("VWorld API failed (tile %d, page %d)", tile_idx, page)
+                break
 
-        if status == "NOT_FOUND" or status != "OK":
-            logger.info("VWorld API returned status=%s at page %d, stopping", status, page)
-            break
+            response_data = data.get("response", {})
+            status = response_data.get("status", "")
 
-        features = response_data.get("result", {}).get("featureCollection", {}).get("features", [])
-        if not features:
-            break
+            if status != "OK":
+                if page == 1:
+                    logger.warning("Tile %d: status=%s, error=%s", tile_idx, status,
+                                   response_data.get("error", {}).get("code", ""))
+                break
 
-        all_features.extend(features)
-        total_count = int(response_data.get("record", {}).get("total", "0"))
-        logger.info("Page %d: got %d features (total so far: %d / %d)", page, len(features), len(all_features), total_count)
+            features = response_data.get("result", {}).get("featureCollection", {}).get("features", [])
+            if not features:
+                break
 
-        if len(all_features) >= total_count:
-            break
+            all_features.extend(features)
+            total_count = int(response_data.get("record", {}).get("total", "0"))
+            logger.info("Tile %d page %d: %d features (running: %d / tile total: %d)",
+                        tile_idx, page, len(features), len(all_features), total_count)
 
-        page += 1
+            if len(features) < 1000:
+                break
+
+            page += 1
+            time.sleep(0.3)
+
         time.sleep(0.3)
 
     if not all_features:
         logger.warning("No features returned from VWorld API")
         return 0
+
+    logger.info("Total features fetched: %d", len(all_features))
 
     # Convert to GeoDataFrame
     geometries = []
@@ -238,29 +250,42 @@ def load_footprints_from_vworld(
             continue
 
     gdf = gpd.GeoDataFrame(properties_list, geometry=geometries, crs="EPSG:4326")
-    logger.info("Created GeoDataFrame with %d features", len(gdf))
+    logger.info("GeoDataFrame: %d features, columns: %s", len(gdf), list(gdf.columns))
 
-    # Map VWorld columns to DB schema
+    # Map VWorld LT_C_SPBD columns to DB schema
     col_map = {
         "buld_nm": "bld_nm",
-        "dong_nm": "dong_nm",
-        "bdtyp_nm": "usage_type",
-        "grnd_flr": "grnd_flr",
-        "ugrnd_flr": "ugrnd_flr",
-        "height": "height",
-        "pnu": "pnu",
-        "sig_cd": "sigungu_cd",
+        "bd_mgt_sn": "bld_mgt_sn",
+        "gro_flo_co": "grnd_flr",
+        "rd_nm": "dong_nm",
     }
     rename = {k: v for k, v in col_map.items() if k in gdf.columns}
     gdf = gdf.rename(columns=rename)
+
+    # Extract PNU from bld_mgt_sn (first 19 chars)
+    if "bld_mgt_sn" in gdf.columns:
+        gdf["pnu"] = gdf["bld_mgt_sn"].apply(
+            lambda x: str(x)[:19] if pd.notna(x) and len(str(x)) >= 19 else None
+        )
+
+    # Convert floor count to integer
+    if "grnd_flr" in gdf.columns:
+        gdf["grnd_flr"] = pd.to_numeric(gdf["grnd_flr"], errors="coerce").astype("Int64")
 
     # Ensure required columns exist
     for col in ["pnu", "bld_nm", "dong_nm", "usage_type", "grnd_flr", "ugrnd_flr", "height"]:
         if col not in gdf.columns:
             gdf[col] = None
 
+    # Estimate height from floors if not available
+    if gdf["height"].isna().all() and "grnd_flr" in gdf.columns:
+        gdf["height"] = gdf["grnd_flr"].apply(
+            lambda x: round(float(x) * 3.3, 1) if pd.notna(x) and x > 0 else None
+        )
+
     # Select only columns matching the DB schema
-    keep_cols = ["pnu", "bld_nm", "dong_nm", "usage_type", "grnd_flr", "ugrnd_flr", "height", "geometry"]
+    keep_cols = ["pnu", "bld_mgt_sn", "bld_nm", "dong_nm", "usage_type",
+                 "grnd_flr", "ugrnd_flr", "height", "geometry"]
     gdf = gdf[[c for c in keep_cols if c in gdf.columns]]
 
     # Ensure MultiPolygon geometry
@@ -268,6 +293,16 @@ def load_footprints_from_vworld(
     gdf["geometry"] = gdf["geometry"].apply(
         lambda g: MultiPolygon([g]) if isinstance(g, Polygon) else g
     )
+    gdf = gdf.rename_geometry("geom")
+
+    # Deduplicate by geometry centroid (tiles may overlap)
+    gdf["_cx"] = gdf.geometry.centroid.x.round(7)
+    gdf["_cy"] = gdf.geometry.centroid.y.round(7)
+    before = len(gdf)
+    gdf = gdf.drop_duplicates(subset=["_cx", "_cy"])
+    gdf = gdf.drop(columns=["_cx", "_cy"])
+    if before != len(gdf):
+        logger.info("Deduplicated: %d -> %d", before, len(gdf))
 
     # Save to PostGIS
     engine = create_engine(db_url)

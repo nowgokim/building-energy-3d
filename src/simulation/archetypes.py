@@ -116,6 +116,8 @@ def _normalize_usage(usage_type: str) -> str:
 
 def _classify_vintage(built_year: int) -> str:
     """Map a construction year to a vintage class label."""
+    if built_year is None:
+        return "1980-2000"  # Unknown → assume common vintage
     if built_year < 1980:
         return "pre-1980"
     if built_year <= 2000:
