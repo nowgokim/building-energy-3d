@@ -60,12 +60,12 @@ def get_building_stats(
     # Grade distribution
     grade_sql = text(f"""
         SELECT
-            COALESCE(er.energy_grade, 'unknown') AS grade,
+            COALESCE(b.energy_grade, 'unknown') AS grade,
             COUNT(*) AS cnt
         FROM buildings_enriched b
         LEFT JOIN energy_results er ON b.pnu = er.pnu
         {bbox_clause}
-        GROUP BY COALESCE(er.energy_grade, 'unknown')
+        GROUP BY COALESCE(b.energy_grade, 'unknown')
         ORDER BY grade
     """)
     grade_rows = db.execute(grade_sql, params).fetchall()
@@ -123,7 +123,7 @@ def list_buildings(
         params.update({"west": west, "south": south, "east": east, "north": north})
 
     if energy_grade is not None:
-        conditions.append("er.energy_grade = :energy_grade")
+        conditions.append("b.energy_grade = :energy_grade")
         params["energy_grade"] = energy_grade
 
     if usage_type is not None:
@@ -150,7 +150,7 @@ def list_buildings(
             b.floors_below,
             b.height,
             b.structure_type,
-            er.energy_grade,
+            b.energy_grade,
             er.total_energy,
             ST_AsGeoJSON(b.geom)::json AS geometry,
             ST_X(ST_Centroid(b.geom)) AS lng,
@@ -212,8 +212,7 @@ def get_building_detail(
             b.floors_below,
             b.height,
             b.structure_type,
-            b.address,
-            er.energy_grade,
+            b.energy_grade,
             er.total_energy,
             er.heating,
             er.cooling,
@@ -249,7 +248,6 @@ def get_building_detail(
             "floors_below": row.floors_below,
             "height": float(row.height) if row.height else None,
             "structure_type": row.structure_type,
-            "address": row.address,
             "energy_grade": row.energy_grade,
             "lng": float(row.lng) if row.lng else None,
             "lat": float(row.lat) if row.lat else None,

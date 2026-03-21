@@ -48,7 +48,7 @@ def _build_filter_query(
     params: dict = {}
 
     if filters.energy_grades:
-        conditions.append("er.energy_grade = ANY(:energy_grades)")
+        conditions.append("b.energy_grade = ANY(:energy_grades)")
         params["energy_grades"] = filters.energy_grades
 
     if filters.vintage_classes:
@@ -88,7 +88,7 @@ def _filtered_rows(db: Session, filters: FilterRequest) -> list:
             b.floors_above,
             b.height,
             b.structure_type,
-            er.energy_grade,
+            b.energy_grade,
             er.total_energy,
             ST_X(ST_Centroid(b.geom)) AS lng,
             ST_Y(ST_Centroid(b.geom)) AS lat
@@ -117,14 +117,13 @@ def search_buildings(
     """
     sql = text("""
         SELECT
-            bl.pnu,
-            bl.building_name,
-            bl.address,
-            ST_X(ST_Centroid(f.geom)) AS lng,
-            ST_Y(ST_Centroid(f.geom)) AS lat
-        FROM building_ledger bl
-        JOIN building_footprints f ON bl.pnu = f.pnu
-        WHERE bl.building_name ILIKE :pattern
+            b.pnu,
+            b.building_name,
+            b.usage_type,
+            ST_X(ST_Centroid(b.geom)) AS lng,
+            ST_Y(ST_Centroid(b.geom)) AS lat
+        FROM buildings_enriched b
+        WHERE b.building_name ILIKE :pattern
         LIMIT 10
     """)
 
@@ -136,7 +135,7 @@ def search_buildings(
         {
             "pnu": r.pnu,
             "building_name": r.building_name,
-            "address": r.address,
+            "usage_type": r.usage_type,
             "lng": float(r.lng) if r.lng else None,
             "lat": float(r.lat) if r.lat else None,
         }

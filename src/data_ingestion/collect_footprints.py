@@ -1,16 +1,21 @@
-"""GIS building footprint loader from SHP files.
+"""GIS building footprint loader from SHP files or VWorld WFS API.
 
-Loads Korean building footprint shapefiles, reprojects to WGS84,
-normalizes column names, and stores in a PostGIS-enabled PostgreSQL database.
+Loads Korean building footprint shapefiles or fetches from VWorld WFS,
+reprojects to WGS84, normalizes column names, and stores in PostGIS.
 
 Usage:
     count = load_footprints_from_shp("buildings.shp", "postgresql://...", "11440")
+    count = load_footprints_from_vworld("API_KEY", "postgresql://...")
 """
 
 import logging
+import time
 from typing import Dict
 
 import geopandas as gpd
+import httpx
+import pandas as pd
+from shapely.geometry import shape
 from sqlalchemy import create_engine
 
 logger = logging.getLogger(__name__)
@@ -140,6 +145,145 @@ def load_footprints_from_shp(
     record_count = len(gdf)
     logger.info("Loaded %d footprints into building_footprints table", record_count)
     return record_count
+
+
+def load_footprints_from_vworld(
+    api_key: str,
+    db_url: str,
+    sigungu_code: str = "11440",
+) -> int:
+    """Fetch building footprints from VWorld WFS API and store in PostGIS.
+
+    Uses the VWorld data API to download building footprints for the given
+    sigungu area (default: 마포구). The API returns GeoJSON features in
+    EPSG:4326, which are directly stored in PostGIS.
+
+    Args:
+        api_key: VWorld API key.
+        db_url: SQLAlchemy PostgreSQL connection URL.
+        sigungu_code: 시군구코드 to filter. Defaults to "11440" (마포구).
+
+    Returns:
+        Number of records loaded into the database.
+    """
+    # 마포구 bbox (WGS84)
+    MAPO_BBOX = "126.89,37.53,126.97,37.58"
+
+    logger.info("Fetching building footprints from VWorld API for 마포구")
+
+    all_features = []
+    page = 1
+    max_pages = 100
+
+    while page <= max_pages:
+        params = {
+            "service": "data",
+            "request": "GetFeature",
+            "data": "LT_C_UPISUBD",
+            "key": api_key,
+            "domain": "localhost",
+            "format": "json",
+            "size": "1000",
+            "page": str(page),
+            "geomFilter": f"BOX({MAPO_BBOX})",
+            "crs": "EPSG:4326",
+            "attrFilter": f"sig_cd:like:{sigungu_code}",
+        }
+
+        try:
+            resp = httpx.get(
+                "https://api.vworld.kr/req/data",
+                params=params,
+                timeout=30.0,
+            )
+            data = resp.json()
+        except Exception:
+            logger.exception("VWorld API request failed (page %d)", page)
+            break
+
+        response_data = data.get("response", {})
+        status = response_data.get("status", "")
+
+        if status == "NOT_FOUND" or status != "OK":
+            logger.info("VWorld API returned status=%s at page %d, stopping", status, page)
+            break
+
+        features = response_data.get("result", {}).get("featureCollection", {}).get("features", [])
+        if not features:
+            break
+
+        all_features.extend(features)
+        total_count = int(response_data.get("record", {}).get("total", "0"))
+        logger.info("Page %d: got %d features (total so far: %d / %d)", page, len(features), len(all_features), total_count)
+
+        if len(all_features) >= total_count:
+            break
+
+        page += 1
+        time.sleep(0.3)
+
+    if not all_features:
+        logger.warning("No features returned from VWorld API")
+        return 0
+
+    # Convert to GeoDataFrame
+    geometries = []
+    properties_list = []
+    for f in all_features:
+        try:
+            geom = shape(f["geometry"])
+            geometries.append(geom)
+            properties_list.append(f.get("properties", {}))
+        except Exception:
+            continue
+
+    gdf = gpd.GeoDataFrame(properties_list, geometry=geometries, crs="EPSG:4326")
+    logger.info("Created GeoDataFrame with %d features", len(gdf))
+
+    # Map VWorld columns to DB schema
+    col_map = {
+        "buld_nm": "bld_nm",
+        "dong_nm": "dong_nm",
+        "bdtyp_nm": "usage_type",
+        "grnd_flr": "grnd_flr",
+        "ugrnd_flr": "ugrnd_flr",
+        "height": "height",
+        "pnu": "pnu",
+        "sig_cd": "sigungu_cd",
+    }
+    rename = {k: v for k, v in col_map.items() if k in gdf.columns}
+    gdf = gdf.rename(columns=rename)
+
+    # Ensure required columns exist
+    for col in ["pnu", "bld_nm", "dong_nm", "usage_type", "grnd_flr", "ugrnd_flr", "height"]:
+        if col not in gdf.columns:
+            gdf[col] = None
+
+    # Select only columns matching the DB schema
+    keep_cols = ["pnu", "bld_nm", "dong_nm", "usage_type", "grnd_flr", "ugrnd_flr", "height", "geometry"]
+    gdf = gdf[[c for c in keep_cols if c in gdf.columns]]
+
+    # Ensure MultiPolygon geometry
+    from shapely.geometry import MultiPolygon, Polygon
+    gdf["geometry"] = gdf["geometry"].apply(
+        lambda g: MultiPolygon([g]) if isinstance(g, Polygon) else g
+    )
+
+    # Save to PostGIS
+    engine = create_engine(db_url)
+    try:
+        gdf.to_postgis(
+            name="building_footprints",
+            con=engine,
+            if_exists="append",
+            index=False,
+            chunksize=500,
+        )
+    finally:
+        engine.dispose()
+
+    logger.info("Loaded %d footprints from VWorld API", len(gdf))
+    return len(gdf)
 
 
 def _reproject_to_4326(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:

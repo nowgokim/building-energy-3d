@@ -18,13 +18,22 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 logger = logging.getLogger(__name__)
 
 
-def step_load_footprints(shp_path: str):
-    """Step 1: GIS건물통합정보 SHP → PostGIS"""
-    from src.data_ingestion.collect_footprints import load_footprints_from_shp
-
+def step_load_footprints(shp_path: str = None):
+    """Step 1: GIS건물통합정보 SHP 또는 VWorld API → PostGIS"""
     settings = get_settings()
-    logger.info(f"Loading footprints from {shp_path}")
-    count = load_footprints_from_shp(shp_path, settings.DATABASE_URL)
+
+    if shp_path:
+        from src.data_ingestion.collect_footprints import load_footprints_from_shp
+        logger.info(f"Loading footprints from {shp_path}")
+        count = load_footprints_from_shp(shp_path, settings.DATABASE_URL)
+    else:
+        from src.data_ingestion.collect_footprints import load_footprints_from_vworld
+        if not settings.VWORLD_API_KEY:
+            logger.error("VWORLD_API_KEY not set and no SHP path provided")
+            return 0
+        logger.info("Loading footprints from VWorld API")
+        count = load_footprints_from_vworld(settings.VWORLD_API_KEY, settings.DATABASE_URL)
+
     logger.info(f"Loaded {count} building footprints")
     return count
 
@@ -47,7 +56,7 @@ def step_refresh_view():
     """Step 3: buildings_enriched Materialized View 생성/갱신"""
     logger.info("Refreshing buildings_enriched materialized view...")
     views_sql_path = os.path.join(os.path.dirname(__file__), "../../db/views.sql")
-    with open(views_sql_path) as f:
+    with open(views_sql_path, encoding="utf-8") as f:
         sql = f.read()
     execute_sql(sql)
     # 건물 수 확인
@@ -128,8 +137,7 @@ def main():
     elif args.tiles_only:
         step_generate_tiles()
     elif args.full or args.shp_path:
-        if args.shp_path:
-            step_load_footprints(args.shp_path)
+        step_load_footprints(args.shp_path)
         step_collect_ledger()
         step_refresh_view()
         step_match_energy()

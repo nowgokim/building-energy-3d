@@ -3,7 +3,7 @@ from functools import lru_cache
 
 
 class Settings(BaseSettings):
-    DATABASE_URL: str = "postgresql://postgres:devpassword@localhost:5432/buildings"
+    DATABASE_URL: str = "postgresql://postgres:devpassword@127.0.0.1:5434/buildings"
     REDIS_URL: str = "redis://localhost:6379"
     DATA_GO_KR_API_KEY: str = ""
     VWORLD_API_KEY: str = ""
