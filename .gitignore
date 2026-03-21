@@ -1,0 +1,58 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+venv/
+.venv/
+env/
+
+# Environment
+.env
+.env.local
+*.pem
+credentials.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Node
+node_modules/
+npm-debug.log*
+
+# Data files (large)
+*.shp
+*.shx
+*.dbf
+*.prj
+*.cpg
+*.pmtiles
+*.b3dm
+*.pnts
+*.cmpt
+*.glb
+*.gltf
+data/raw/
+data/processed/
+output_tiles/
+
+# Database
+*.sql.gz
+*.dump
+
+# Logs
+logs/
+*.log
+
+# Sensitive notes
+gpt.txt
