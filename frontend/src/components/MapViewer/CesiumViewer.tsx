@@ -236,12 +236,16 @@ async function loadEnergyDataAndBuildings(viewer: Cesium.Viewer) {
       `,
     });
 
-    // Lower buildings to ground level
-    const cartographic = Cesium.Cartographic.fromDegrees(MAPO_CENTER.lng, MAPO_CENTER.lat, 0.0);
-    const surface = Cesium.Cartesian3.fromRadians(cartographic.longitude, cartographic.latitude, 0.0);
-    const offset = Cesium.Cartesian3.fromRadians(cartographic.longitude, cartographic.latitude, -5.0);
-    const translation = Cesium.Cartesian3.subtract(offset, surface, new Cesium.Cartesian3());
-    tileset.modelMatrix = Cesium.Matrix4.fromTranslation(translation);
+    // OSM Buildings are pre-clamped to Cesium World Terrain — no manual offset needed.
+    // If fine-tuning is needed, use boundingSphere.center:
+    // const heightOffset = -1.0;
+    // const bs = tileset.boundingSphere;
+    // const carto = Cesium.Cartographic.fromCartesian(bs.center);
+    // const surface = Cesium.Cartesian3.fromRadians(carto.longitude, carto.latitude, 0);
+    // const shifted = Cesium.Cartesian3.fromRadians(carto.longitude, carto.latitude, heightOffset);
+    // tileset.modelMatrix = Cesium.Matrix4.fromTranslation(
+    //   Cesium.Cartesian3.subtract(shifted, surface, new Cesium.Cartesian3())
+    // );
 
     viewer.scene.primitives.add(tileset);
     console.log("OSM Buildings loaded with textures");
