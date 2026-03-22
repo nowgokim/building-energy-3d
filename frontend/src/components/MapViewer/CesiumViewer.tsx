@@ -19,6 +19,7 @@ export default function CesiumViewerComponent() {
 
     const viewer = new Cesium.Viewer(containerRef.current, {
       sceneMode: Cesium.SceneMode.SCENE3D,
+      // Use Cesium Ion default imagery (Bing Maps)
       animation: false,
       timeline: false,
       geocoder: false,
@@ -35,10 +36,8 @@ export default function CesiumViewerComponent() {
     });
 
     viewerRef.current = viewer;
-    viewer.scene.globe.depthTestAgainstTerrain = true;
 
-    // Cesium World Terrain
-    viewer.scene.setTerrain(Cesium.Terrain.fromWorldTerrain());
+    // 평면 지도 (지형 없음 — heightReference 문제 방지)
 
     // Create data source for our 3D buildings
     const buildingDS = new Cesium.CustomDataSource("buildings-3d");
@@ -140,15 +139,18 @@ function getViewerBbox(viewer: Cesium.Viewer) {
 
 // Energy consumption → color
 function energyToColor(total: number | null): Cesium.Color {
-  if (total == null) return Cesium.Color.fromCssColorString("#8899aa").withAlpha(0.8);
+  const alpha = 0.92;
+  if (total == null) return new Cesium.Color(0.6, 0.62, 0.65, alpha);
   const clamped = Math.max(50, Math.min(300, total));
   const ratio = (clamped - 50) / 250;
-  if (ratio < 0.33) {
-    return Cesium.Color.fromCssColorString("#4cb848").withAlpha(0.8);
-  } else if (ratio < 0.66) {
-    return Cesium.Color.fromCssColorString("#fdd835").withAlpha(0.8);
+  if (ratio < 0.25) {
+    return new Cesium.Color(0.3, 0.72, 0.28, alpha); // green
+  } else if (ratio < 0.5) {
+    return new Cesium.Color(0.55, 0.76, 0.22, alpha); // lime
+  } else if (ratio < 0.75) {
+    return new Cesium.Color(0.99, 0.85, 0.21, alpha); // yellow
   } else {
-    return Cesium.Color.fromCssColorString("#fb8c00").withAlpha(0.8);
+    return new Cesium.Color(0.98, 0.55, 0.0, alpha); // orange
   }
 }
 
@@ -166,7 +168,7 @@ async function loadBuildingsInView(
   // Skip if zoomed out too far
   const spanLng = bbox.east - bbox.west;
   const spanLat = bbox.north - bbox.south;
-  if (spanLng > 0.05 || spanLat > 0.05) return;
+  if (spanLng > 0.15 || spanLat > 0.15) return;
 
   loadingRef.current = true;
 
@@ -192,12 +194,8 @@ async function loadBuildingsInView(
           hierarchy: Cesium.Cartesian3.fromDegreesArray(positions),
           height: 0,
           extrudedHeight: height,
-          heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
-          extrudedHeightReference: Cesium.HeightReference.RELATIVE_TO_GROUND,
           material: new Cesium.ColorMaterialProperty(color),
-          outline: true,
-          outlineColor: color.darken(0.3, new Cesium.Color()),
-          outlineWidth: 1,
+          outline: false,
         },
       });
 
