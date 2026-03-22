@@ -1,7 +1,7 @@
 import { useRef, useEffect } from "react";
 import * as Cesium from "cesium";
 import { MAPO_CENTER } from "../../utils/constants";
-import { pickBuilding, getBuildingDetail } from "../../api/client";
+import { pickBuilding, getBuildingDetail, getBuildings } from "../../api/client";
 import { useAppStore } from "../../store/appStore";
 
 Cesium.Ion.defaultAccessToken = import.meta.env.VITE_CESIUM_ION_TOKEN ?? "";
@@ -10,6 +10,8 @@ export default function CesiumViewerComponent() {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<Cesium.Viewer | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const loadedPnus = useRef(new Set<string>());
+  const loadingRef = useRef(false);
 
   useEffect(() => {
     if (!containerRef.current || viewerRef.current) return;
@@ -27,7 +29,6 @@ export default function CesiumViewerComponent() {
       sceneModePicker: false,
       selectionIndicator: false,
       infoBox: false,
-      // Performance: no shadows, render only on change
       shadows: false,
       requestRenderMode: true,
       maximumRenderTimeChange: Infinity,
@@ -39,8 +40,18 @@ export default function CesiumViewerComponent() {
     // Cesium World Terrain
     viewer.scene.setTerrain(Cesium.Terrain.fromWorldTerrain());
 
-    // Load OSM Buildings (3D shapes + shader)
-    loadOSMBuildings(viewer);
+    // Create data source for our 3D buildings
+    const buildingDS = new Cesium.CustomDataSource("buildings-3d");
+    viewer.dataSources.add(buildingDS);
+
+    // Initial load
+    loadBuildingsInView(viewer, buildingDS, loadedPnus.current, loadingRef);
+
+    // Reload on camera move
+    viewer.camera.moveEnd.addEventListener(() => {
+      loadBuildingsInView(viewer, buildingDS, loadedPnus.current, loadingRef);
+      viewer.scene.requestRender();
+    });
 
     // Fly to 마포구
     viewer.camera.flyTo({
@@ -57,17 +68,15 @@ export default function CesiumViewerComponent() {
       duration: 2,
     });
 
-    // Click handler — server-side pick (no client-side centroid loading)
+    // Click handler — server-side pick
     viewer.screenSpaceEventHandler.setInputAction(
       async (event: { position: { x: number; y: number } }) => {
         if (viewer.isDestroyed()) return;
 
-        // Cancel previous request
         abortRef.current?.abort();
         const controller = new AbortController();
         abortRef.current = controller;
 
-        // Get click position
         let cartesian = viewer.scene.pickPosition(event.position);
         if (!cartesian) {
           const ray = viewer.camera.getPickRay(event.position);
@@ -80,7 +89,6 @@ export default function CesiumViewerComponent() {
         const lat = Cesium.Math.toDegrees(carto.latitude);
 
         try {
-          // Server-side nearest building lookup
           const result = await pickBuilding(lng, lat, controller.signal);
           if (controller.signal.aborted || viewer.isDestroyed()) return;
 
@@ -98,7 +106,7 @@ export default function CesiumViewerComponent() {
       Cesium.ScreenSpaceEventType.LEFT_CLICK
     );
 
-    // WebGL context loss handler
+    // WebGL context loss
     const canvas = viewer.scene.canvas;
     const handleContextLost = () => {
       useAppStore.getState().setError("3D 렌더링이 중단되었습니다. 페이지를 새로고침하세요.");
@@ -118,68 +126,92 @@ export default function CesiumViewerComponent() {
   return <div ref={containerRef} style={{ width: "100%", height: "100%" }} />;
 }
 
-// --- OSM Buildings with shader ---
-async function loadOSMBuildings(viewer: Cesium.Viewer) {
+// --- Viewport-based 3D building loading ---
+function getViewerBbox(viewer: Cesium.Viewer) {
+  const rect = viewer.camera.computeViewRectangle();
+  if (!rect) return null;
+  return {
+    west: Cesium.Math.toDegrees(rect.west),
+    south: Cesium.Math.toDegrees(rect.south),
+    east: Cesium.Math.toDegrees(rect.east),
+    north: Cesium.Math.toDegrees(rect.north),
+  };
+}
+
+// Energy consumption → color
+function energyToColor(total: number | null): Cesium.Color {
+  if (total == null) return Cesium.Color.fromCssColorString("#8899aa").withAlpha(0.8);
+  const clamped = Math.max(50, Math.min(300, total));
+  const ratio = (clamped - 50) / 250;
+  if (ratio < 0.33) {
+    return Cesium.Color.fromCssColorString("#4cb848").withAlpha(0.8);
+  } else if (ratio < 0.66) {
+    return Cesium.Color.fromCssColorString("#fdd835").withAlpha(0.8);
+  } else {
+    return Cesium.Color.fromCssColorString("#fb8c00").withAlpha(0.8);
+  }
+}
+
+async function loadBuildingsInView(
+  viewer: Cesium.Viewer,
+  ds: Cesium.CustomDataSource,
+  loadedPnus: Set<string>,
+  loadingRef: React.MutableRefObject<boolean>,
+) {
+  if (loadingRef.current || viewer.isDestroyed()) return;
+
+  const bbox = getViewerBbox(viewer);
+  if (!bbox) return;
+
+  // Skip if zoomed out too far
+  const spanLng = bbox.east - bbox.west;
+  const spanLat = bbox.north - bbox.south;
+  if (spanLng > 0.05 || spanLat > 0.05) return;
+
+  loadingRef.current = true;
+
   try {
-    const tileset = await Cesium.Cesium3DTileset.fromIonAssetId(96188, {
-      maximumScreenSpaceError: 16,
-      maximumMemoryUsage: 256, // MB
-    });
+    const data = await getBuildings(bbox);
     if (viewer.isDestroyed()) return;
 
-    tileset.style = new Cesium.Cesium3DTileStyle({
-      color: {
-        conditions: [
-          ["${feature['cesium#estimatedHeight']} > 50", "color('#4cb848')"],
-          ["${feature['cesium#estimatedHeight']} > 30", "color('#8dc63f')"],
-          ["${feature['cesium#estimatedHeight']} > 20", "color('#d4e157')"],
-          ["${feature['cesium#estimatedHeight']} > 10", "color('#fdd835')"],
-          ["${feature['cesium#estimatedHeight']} > 5", "color('#ffb300')"],
-          ["true", "color('#fb8c00')"],
-        ],
-      },
-    });
+    let added = 0;
+    for (const feature of data.features) {
+      const props = feature.properties;
+      const geom = feature.geometry;
+      if (!geom || geom.type !== "MultiPolygon" || !props.pnu) continue;
+      if (loadedPnus.has(props.pnu)) continue;
 
-    tileset.customShader = new Cesium.CustomShader({
-      fragmentShaderText: `
-        float hash(vec2 p) {
-          return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
-        }
-        void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material) {
-          vec3 normalEC = fsInput.attributes.normalEC;
-          vec3 upEC = normalize(czm_normal * vec3(0.0, 0.0, 1.0));
-          float upDot = abs(dot(normalEC, upEC));
-          vec3 posWC = (czm_inverseView * vec4(fsInput.attributes.positionEC, 1.0)).xyz;
-          if (upDot < 0.35) {
-            float floorH = 3.3;
-            float vertFrac = mod(posWC.z, floorH) / floorH;
-            float horizFrac = mod(posWC.x + posWC.y, 2.8);
-            float isWindow = step(0.4, horizFrac) * (1.0 - step(2.0, horizFrac))
-                           * step(0.2, vertFrac) * (1.0 - step(0.75, vertFrac));
-            vec3 wallBase = material.diffuse * 0.75;
-            float rnd = hash(floor(posWC.xy * 0.5));
-            vec3 glassColor = mix(vec3(0.12, 0.18, 0.28), vec3(0.25, 0.35, 0.50), rnd * 0.5 + 0.25);
-            material.diffuse = mix(wallBase, glassColor, isWindow * 0.85);
-            float lineStrength = 1.0 - smoothstep(0.0, 0.05, vertFrac);
-            material.diffuse = mix(material.diffuse, wallBase * 0.6, lineStrength * 0.8);
-          } else {
-            float roofRnd = hash(floor(posWC.xy * 0.02));
-            vec3 roofTint;
-            if (roofRnd < 0.25) roofTint = vec3(0.55, 0.53, 0.50);
-            else if (roofRnd < 0.45) roofTint = vec3(0.35, 0.45, 0.35);
-            else if (roofRnd < 0.65) roofTint = vec3(0.50, 0.40, 0.32);
-            else if (roofRnd < 0.80) roofTint = vec3(0.40, 0.40, 0.42);
-            else roofTint = vec3(0.60, 0.58, 0.55);
-            material.diffuse = mix(material.diffuse * 0.6, roofTint, 0.6);
-          }
-          material.alpha = 1.0;
-        }
-      `,
-    });
+      const height = props.height ?? 10;
+      const color = energyToColor(props.total_energy);
 
-    viewer.scene.primitives.add(tileset);
-    console.log("OSM Buildings loaded");
-  } catch (e) {
-    console.warn("OSM Buildings failed:", e);
+      const coords = (geom as GeoJSON.MultiPolygon).coordinates[0][0];
+      const positions = coords.flatMap(([lng, lat]) => [lng, lat]);
+
+      ds.entities.add({
+        polygon: {
+          hierarchy: Cesium.Cartesian3.fromDegreesArray(positions),
+          height: 0,
+          extrudedHeight: height,
+          heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+          extrudedHeightReference: Cesium.HeightReference.RELATIVE_TO_GROUND,
+          material: new Cesium.ColorMaterialProperty(color),
+          outline: true,
+          outlineColor: color.darken(0.3, new Cesium.Color()),
+          outlineWidth: 1,
+        },
+      });
+
+      loadedPnus.add(props.pnu);
+      added++;
+    }
+
+    if (added > 0) {
+      console.log(`Added ${added} buildings (total: ${loadedPnus.size})`);
+      viewer.scene.requestRender();
+    }
+  } catch {
+    // silently fail viewport loads
+  } finally {
+    loadingRef.current = false;
   }
 }

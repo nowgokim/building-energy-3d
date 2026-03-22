@@ -24,6 +24,22 @@ async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
   return resp.json();
 }
 
+export async function getBuildings(params?: {
+  west?: number;
+  south?: number;
+  east?: number;
+  north?: number;
+}): Promise<BuildingCollection> {
+  const sp = new URLSearchParams();
+  if (params) {
+    for (const [k, v] of Object.entries(params)) {
+      if (v !== undefined && v !== null) sp.set(k, String(v));
+    }
+  }
+  const qs = sp.toString();
+  return fetchJSON(`${API_BASE_URL}/buildings/${qs ? "?" + qs : ""}`);
+}
+
 export async function pickBuilding(
   lng: number,
   lat: number,
