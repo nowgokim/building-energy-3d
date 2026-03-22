@@ -141,7 +141,17 @@ def list_buildings(
     sql = text(f"""
         SELECT
             b.pnu,
-            b.building_name,
+            CASE
+                WHEN b.building_name IS NOT NULL AND TRIM(b.building_name) != ''
+                    THEN b.building_name
+                ELSE CONCAT(
+                    CAST(CAST(SUBSTRING(b.pnu, 12, 4) AS INTEGER) AS TEXT),
+                    CASE WHEN CAST(SUBSTRING(b.pnu, 16, 4) AS INTEGER) > 0
+                         THEN CONCAT('-', CAST(CAST(SUBSTRING(b.pnu, 16, 4) AS INTEGER) AS TEXT))
+                         ELSE '' END,
+                    '번지'
+                )
+            END AS building_name,
             b.usage_type,
             b.vintage_class,
             b.built_year,
