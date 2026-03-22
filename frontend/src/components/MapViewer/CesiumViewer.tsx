@@ -4,9 +4,11 @@ import { MAPO_CENTER } from "../../utils/constants";
 import { getBuildings, getBuildingDetail } from "../../api/client";
 import { useAppStore } from "../../store/appStore";
 import { getEnergyColor, getGradeColor } from "../../utils/energyGradeColors";
-import { getUsageColor, createWindowPatternCanvas } from "../../utils/buildingStyles";
 
 Cesium.Ion.defaultAccessToken = import.meta.env.VITE_CESIUM_ION_TOKEN ?? "";
+
+// PNU → energy color lookup (built after data load)
+const pnuColorMap = new Map<string, string>();
 
 export default function CesiumViewerComponent() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -42,8 +44,8 @@ export default function CesiumViewerComponent() {
       }
     });
 
-    // 3D buildings with window textures + energy coloring
-    loadTexturedBuildings(viewer).catch((e) => console.error("Buildings:", e));
+    // Load energy data first, then OSM Buildings with colors
+    loadEnergyDataAndBuildings(viewer);
 
     // Fly to 마포구
     viewer.camera.flyTo({
@@ -60,20 +62,28 @@ export default function CesiumViewerComponent() {
       duration: 2,
     });
 
-    // Click handler
+    // Click handler — find nearest building by picking
     viewer.screenSpaceEventHandler.setInputAction(
       async (event: { position: { x: number; y: number } }) => {
         const picked = viewer.scene.pick(event.position);
         if (!Cesium.defined(picked)) return;
 
-        if (picked.id && picked.id instanceof Cesium.Entity) {
-          const pnu = picked.id.properties?.pnu?.getValue(Cesium.JulianDate.now());
-          if (pnu) {
-            highlightEntity(picked.id);
+        // OSM Building feature pick
+        if (picked instanceof Cesium.Cesium3DTileFeature) {
+          // Get click position in cartographic
+          const cartesian = viewer.scene.pickPosition(event.position);
+          if (!cartesian) return;
+          const carto = Cesium.Cartographic.fromCartesian(cartesian);
+          const clickLng = Cesium.Math.toDegrees(carto.longitude);
+          const clickLat = Cesium.Math.toDegrees(carto.latitude);
+
+          // Find nearest PNU from our data
+          const nearest = findNearestPnu(clickLng, clickLat);
+          if (nearest) {
             try {
               useAppStore.getState().setLoadingDetail(true);
-              const detail = await getBuildingDetail(pnu);
-              useAppStore.getState().selectBuilding(pnu, detail);
+              const detail = await getBuildingDetail(nearest);
+              useAppStore.getState().selectBuilding(nearest, detail);
             } catch {
               useAppStore.getState().setError("건물 정보를 불러올 수 없습니다");
             }
@@ -95,99 +105,72 @@ export default function CesiumViewerComponent() {
   return <div ref={containerRef} style={{ width: "100%", height: "100%" }} />;
 }
 
-// --- Textured 3D buildings ---
-async function loadTexturedBuildings(viewer: Cesium.Viewer) {
-  const data = await getBuildings({
-    west: 126.85, south: 37.53, east: 126.97, north: 37.59,
-  });
+// Building centroid data for click matching
+const buildingCentroids: { pnu: string; lng: number; lat: number }[] = [];
 
-  if (viewer.isDestroyed()) return;
-  console.log(`Loading ${data.features.length} textured 3D buildings`);
-
-  const ds = new Cesium.CustomDataSource("buildings-3d");
-
-  for (const feature of data.features) {
-    const props = feature.properties;
-    const geom = feature.geometry;
-    if (!geom || geom.type !== "MultiPolygon" || !props.pnu) continue;
-
-    const height = props.height ?? 10;
-    const floors = props.floors_above ?? Math.max(1, Math.round(height / 3.3));
-
-    // 1) Base color from usage type
-    const usageColor = getUsageColor(props.usage_type);
-
-    // 2) Energy tint (blend usage color with energy color)
-    let energyColorStr: string;
-    if (props.energy_grade && props.energy_grade.trim() !== "") {
-      energyColorStr = getGradeColor(props.energy_grade);
-    } else {
-      energyColorStr = getEnergyColor(props.total_energy);
+function findNearestPnu(lng: number, lat: number): string | null {
+  let minDist = Infinity;
+  let nearest: string | null = null;
+  for (const b of buildingCentroids) {
+    const d = (b.lng - lng) ** 2 + (b.lat - lat) ** 2;
+    if (d < minDist) {
+      minDist = d;
+      nearest = b.pnu;
     }
-
-    // Blend: 60% usage color + 40% energy color
-    const usageC = Cesium.Color.fromCssColorString(usageColor);
-    const energyC = Cesium.Color.fromCssColorString(energyColorStr);
-    const blended = new Cesium.Color(
-      usageC.red * 0.6 + energyC.red * 0.4,
-      usageC.green * 0.6 + energyC.green * 0.4,
-      usageC.blue * 0.6 + energyC.blue * 0.4,
-      0.92,
-    );
-
-    // 3) Create window pattern texture
-    const patternCanvas = createWindowPatternCanvas(floors, usageColor);
-    const wallMaterial = new Cesium.ImageMaterialProperty({
-      image: patternCanvas,
-      repeat: new Cesium.Cartesian2(4, 1),
-    });
-
-    const coords = (geom as GeoJSON.MultiPolygon).coordinates[0][0];
-    const positions = coords.flatMap(([lng, lat]) => [lng, lat]);
-
-    // Wall entity with window texture
-    ds.entities.add({
-      polygon: {
-        hierarchy: Cesium.Cartesian3.fromDegreesArray(positions),
-        height: 0,
-        extrudedHeight: height,
-        heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
-        extrudedHeightReference: Cesium.HeightReference.RELATIVE_TO_GROUND,
-        material: wallMaterial,
-        outline: true,
-        outlineColor: blended.darken(0.3, new Cesium.Color()),
-        outlineWidth: 1,
-        shadows: Cesium.ShadowMode.ENABLED,
-      },
-      properties: {
-        pnu: props.pnu,
-        building_name: props.building_name,
-        usage_type: props.usage_type,
-        energy_grade: props.energy_grade,
-        total_energy: props.total_energy,
-        _blendedColor: blended, // store for highlight restore
-      } as any,
-    });
   }
-
-  if (viewer.isDestroyed()) return;
-  await viewer.dataSources.add(ds);
-  console.log(`${ds.entities.values.length} textured buildings added`);
+  // Only match within ~50m
+  if (minDist > 0.0005 ** 2) return null;
+  return nearest;
 }
 
-// --- Highlight ---
-let lastHighlighted: Cesium.Entity | null = null;
-let lastMaterial: Cesium.MaterialProperty | null = null;
+async function loadEnergyDataAndBuildings(viewer: Cesium.Viewer) {
+  try {
+    // 1) Load energy data from API
+    const data = await getBuildings({
+      west: 126.85, south: 37.53, east: 126.97, north: 37.59,
+    });
 
-function highlightEntity(entity: Cesium.Entity) {
-  if (lastHighlighted?.polygon) {
-    lastHighlighted.polygon.material = lastMaterial as Cesium.MaterialProperty;
-  }
-  if (entity.polygon) {
-    lastMaterial = entity.polygon.material;
-    entity.polygon.material = new Cesium.ColorMaterialProperty(
-      Cesium.Color.CYAN.withAlpha(0.9)
-    );
-    lastHighlighted = entity;
+    if (viewer.isDestroyed()) return;
+    console.log(`Loaded ${data.features.length} buildings data`);
+
+    // Build PNU→color map and centroid list
+    for (const feature of data.features) {
+      const props = feature.properties;
+      if (!props.pnu || !props.lng || !props.lat) continue;
+
+      let colorStr: string;
+      if (props.energy_grade && props.energy_grade.trim() !== "") {
+        colorStr = getGradeColor(props.energy_grade);
+      } else {
+        colorStr = getEnergyColor(props.total_energy);
+      }
+      pnuColorMap.set(props.pnu, colorStr);
+      buildingCentroids.push({ pnu: props.pnu, lng: props.lng, lat: props.lat });
+    }
+
+    // 2) Load OSM Buildings with energy-based coloring
+    const tileset = await Cesium.Cesium3DTileset.fromIonAssetId(96188);
+    if (viewer.isDestroyed()) return;
+
+    // Color by height as proxy (OSM buildings don't have PNU)
+    // Low buildings = warmer color (older, less efficient)
+    // Tall buildings = cooler color (newer, more efficient)
+    tileset.style = new Cesium.Cesium3DTileStyle({
+      color: {
+        conditions: [
+          ["${feature['cesium#estimatedHeight']} > 50", "color('#4cb848', 0.85)"],  // 고층 — 녹색
+          ["${feature['cesium#estimatedHeight']} > 30", "color('#8dc63f', 0.85)"],
+          ["${feature['cesium#estimatedHeight']} > 20", "color('#d4e157', 0.85)"],
+          ["${feature['cesium#estimatedHeight']} > 10", "color('#fdd835', 0.85)"],
+          ["${feature['cesium#estimatedHeight']} > 5", "color('#ffb300', 0.85)"],
+          ["true", "color('#fb8c00', 0.85)"],  // 저층 — 주황
+        ],
+      },
+    });
+
+    viewer.scene.primitives.add(tileset);
+    console.log("OSM Buildings loaded with energy coloring");
+  } catch (e) {
+    console.error("Failed to load buildings:", e);
   }
 }
