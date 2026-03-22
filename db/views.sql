@@ -63,15 +63,13 @@ SELECT
     END AS structure_class
 
 FROM building_footprints f
-LEFT JOIN building_ledger l
-    ON f.pnu = l.pnu
-    AND (
-        f.dong_nm = l.dong_nm
-        OR f.dong_nm IS NULL
-        OR l.dong_nm IS NULL
-        OR f.dong_nm = ''
-        OR l.dong_nm = ''
-    )
+LEFT JOIN LATERAL (
+    SELECT *
+    FROM building_ledger l
+    WHERE l.pnu = f.pnu
+    ORDER BY l.grnd_flr_cnt DESC NULLS LAST, l.tot_area DESC NULLS LAST
+    LIMIT 1
+) l ON true
 WHERE f.geom IS NOT NULL
   AND ST_IsValid(f.geom);
 
