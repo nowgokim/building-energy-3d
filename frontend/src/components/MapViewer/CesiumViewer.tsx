@@ -156,64 +156,90 @@ async function loadEnergyDataAndBuildings(viewer: Cesium.Viewer) {
     tileset.style = new Cesium.Cesium3DTileStyle({
       color: {
         conditions: [
-          ["${feature['cesium#estimatedHeight']} > 50", "color('#4cb848', 0.9)"],
-          ["${feature['cesium#estimatedHeight']} > 30", "color('#8dc63f', 0.9)"],
-          ["${feature['cesium#estimatedHeight']} > 20", "color('#d4e157', 0.9)"],
-          ["${feature['cesium#estimatedHeight']} > 10", "color('#fdd835', 0.9)"],
-          ["${feature['cesium#estimatedHeight']} > 5", "color('#ffb300', 0.9)"],
-          ["true", "color('#fb8c00', 0.9)"],
+          ["${feature['cesium#estimatedHeight']} > 50", "color('#4cb848')"],
+          ["${feature['cesium#estimatedHeight']} > 30", "color('#8dc63f')"],
+          ["${feature['cesium#estimatedHeight']} > 20", "color('#d4e157')"],
+          ["${feature['cesium#estimatedHeight']} > 10", "color('#fdd835')"],
+          ["${feature['cesium#estimatedHeight']} > 5", "color('#ffb300')"],
+          ["true", "color('#fb8c00')"],
         ],
       },
     });
 
-    // Procedural wall texture shader
+    // Procedural texture shader: windows on walls, varied rooftop colors
     tileset.customShader = new Cesium.CustomShader({
       fragmentShaderText: `
+        // Simple hash for pseudo-random values
+        float hash(vec2 p) {
+          return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+        }
+
         void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material) {
           vec3 normalEC = fsInput.attributes.normalEC;
-          // Detect walls vs roofs using the up direction in eye coordinates
           vec3 upEC = normalize(czm_normal * vec3(0.0, 0.0, 1.0));
           float upDot = abs(dot(normalEC, upEC));
+          vec3 posWC = (czm_inverseView * vec4(fsInput.attributes.positionEC, 1.0)).xyz;
 
-          if (upDot < 0.4) {
-            // === WALL ===
-            vec3 posWC = (czm_inverseView * vec4(fsInput.attributes.positionEC, 1.0)).xyz;
-            float scale = 1.0;
+          if (upDot < 0.35) {
+            // === WALL: window pattern ===
+            float floorH = 3.3;
+            float vertFrac = mod(posWC.z, floorH) / floorH;
+            float horizFrac = mod(posWC.x + posWC.y, 2.8);
 
-            // Floor lines every ~3.3m
-            float floorH = 3.3 * scale;
-            float frac = mod(length(posWC), floorH) / floorH;
+            // Window openings
+            float isWinH = step(0.4, horizFrac) * (1.0 - step(2.0, horizFrac));
+            float isWinV = step(0.2, vertFrac) * (1.0 - step(0.75, vertFrac));
+            float isWindow = isWinH * isWinV;
 
-            // Window grid
-            float wx = mod(posWC.x + posWC.y, 2.5 * scale);
-            float wy = frac * floorH;
-            float isWinX = step(0.5, wx) * (1.0 - step(1.8, wx));
-            float isWinY = step(0.6, wy) * (1.0 - step(2.6, wy));
-            float isWindow = isWinX * isWinY;
+            // Concrete wall base (slightly darker than roof color)
+            vec3 wallBase = material.diffuse * 0.75;
 
-            // Wall color: slightly darker base
-            vec3 wallBase = material.diffuse * 0.8;
-            vec3 glassColor = vec3(0.15, 0.22, 0.32);
-            vec3 reflectColor = vec3(0.35, 0.45, 0.55);
+            // Glass: dark blue with subtle variation
+            float rnd = hash(floor(posWC.xy * 0.5));
+            vec3 glassColor = mix(
+              vec3(0.12, 0.18, 0.28),
+              vec3(0.25, 0.35, 0.50),
+              rnd * 0.5 + 0.25
+            );
 
-            vec3 winColor = mix(glassColor, reflectColor, 0.3);
-            material.diffuse = mix(wallBase, winColor, isWindow * 0.8);
+            material.diffuse = mix(wallBase, glassColor, isWindow * 0.85);
 
-            // Floor separator
-            float lineF = smoothstep(0.0, 0.04, frac) * (1.0 - smoothstep(0.96, 1.0, frac));
-            material.diffuse *= mix(0.6, 1.0, lineF);
+            // Floor separation line
+            float lineStrength = 1.0 - smoothstep(0.0, 0.05, vertFrac);
+            material.diffuse = mix(material.diffuse, wallBase * 0.6, lineStrength * 0.8);
+
           } else {
-            // === ROOF ===
-            material.diffuse *= 0.88;
+            // === ROOF: varied color simulating different materials ===
+            float roofRnd = hash(floor(posWC.xy * 0.02));
+
+            // Mix of roof types: concrete gray, green, brown, dark
+            vec3 roofColors[4];
+            roofColors[0] = vec3(0.55, 0.53, 0.50); // concrete
+            roofColors[1] = vec3(0.35, 0.45, 0.35); // green (trees/garden)
+            roofColors[2] = vec3(0.50, 0.40, 0.32); // brown tile
+            roofColors[3] = vec3(0.40, 0.40, 0.42); // dark flat
+
+            int idx = int(floor(roofRnd * 4.0));
+            vec3 roofTint;
+            if (idx == 0) roofTint = roofColors[0];
+            else if (idx == 1) roofTint = roofColors[1];
+            else if (idx == 2) roofTint = roofColors[2];
+            else roofTint = roofColors[3];
+
+            // Blend energy color with roof material
+            material.diffuse = mix(material.diffuse * 0.7, roofTint, 0.5);
           }
+
+          // Fully opaque
+          material.alpha = 1.0;
         }
       `,
     });
 
-    // Lower buildings slightly to reduce floating above terrain
-    const cartographic = Cesium.Cartographic.fromDegrees(MAPO_CENTER.lng, MAPO_CENTER.lat, -2.0);
+    // Lower buildings to ground level
+    const cartographic = Cesium.Cartographic.fromDegrees(MAPO_CENTER.lng, MAPO_CENTER.lat, 0.0);
     const surface = Cesium.Cartesian3.fromRadians(cartographic.longitude, cartographic.latitude, 0.0);
-    const offset = Cesium.Cartesian3.fromRadians(cartographic.longitude, cartographic.latitude, -2.0);
+    const offset = Cesium.Cartesian3.fromRadians(cartographic.longitude, cartographic.latitude, -5.0);
     const translation = Cesium.Cartesian3.subtract(offset, surface, new Cesium.Cartesian3());
     tileset.modelMatrix = Cesium.Matrix4.fromTranslation(translation);
 
