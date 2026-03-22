@@ -21,6 +21,7 @@ export default function CesiumViewerComponent() {
 
     const viewer = new Cesium.Viewer(containerRef.current, {
       sceneMode: Cesium.SceneMode.SCENE3D,
+      globe: false,
       animation: false,
       timeline: false,
       geocoder: false,
@@ -31,26 +32,27 @@ export default function CesiumViewerComponent() {
       sceneModePicker: false,
       selectionIndicator: false,
       infoBox: false,
+      requestRenderMode: true,
     });
 
     viewerRef.current = viewer;
 
     // Load Google 3D Tiles (photorealistic buildings + terrain)
-    loadGoogle3DTiles(viewer).catch(() => {});
+    loadGoogle3DTiles(viewer).catch((e) => console.error("Google 3D Tiles:", e));
 
     // Load energy data markers on top of Google buildings
-    loadEnergyMarkers(viewer).catch(() => {});
+    loadEnergyMarkers(viewer).catch((e) => console.error("Energy markers:", e));
 
     // Fly to 마포구
     viewer.camera.flyTo({
       destination: Cesium.Cartesian3.fromDegrees(
         MAPO_CENTER.lng,
         MAPO_CENTER.lat,
-        800
+        600
       ),
       orientation: {
-        heading: Cesium.Math.toRadians(20),
-        pitch: Cesium.Math.toRadians(-40),
+        heading: Cesium.Math.toRadians(0),
+        pitch: Cesium.Math.toRadians(-90),
         roll: 0,
       },
       duration: 2,
@@ -91,15 +93,18 @@ export default function CesiumViewerComponent() {
 
 // --- Google Photorealistic 3D Tiles ---
 async function loadGoogle3DTiles(viewer: Cesium.Viewer) {
-  const tileset = await Cesium.createGooglePhotorealistic3DTileset(
-    GOOGLE_API_KEY,
+  // Increase parallel request limit for Google tiles
+  Cesium.RequestScheduler.requestsByServer["tile.googleapis.com:443"] = 18;
+
+  // Direct URL approach (Google official docs)
+  const tileset = await Cesium.Cesium3DTileset.fromUrl(
+    `https://tile.googleapis.com/v1/3dtiles/root.json?key=${GOOGLE_API_KEY}`,
     { showCreditsOnScreen: true }
   );
   if (viewer.isDestroyed()) return;
 
   viewer.scene.primitives.add(tileset);
-  viewer.scene.globe.show = false;
-  console.log("Google Photorealistic 3D Tiles loaded");
+  console.log("Google Photorealistic 3D Tiles loaded successfully");
 }
 
 // --- Energy markers (colored circles on building rooftops) ---
@@ -133,12 +138,12 @@ async function loadEnergyMarkers(viewer: Cesium.Viewer) {
     ds.entities.add({
       position: Cesium.Cartesian3.fromDegrees(props.lng, props.lat, markerHeight),
       point: {
-        pixelSize: 8,
+        pixelSize: 10,
         color: color,
-        outlineColor: Cesium.Color.BLACK.withAlpha(0.5),
-        outlineWidth: 1,
-        disableDepthTestDistance: Number.POSITIVE_INFINITY,
-        scaleByDistance: new Cesium.NearFarScalar(200, 1.5, 3000, 0.5),
+        outlineColor: Cesium.Color.WHITE.withAlpha(0.8),
+        outlineWidth: 2,
+        heightReference: Cesium.HeightReference.NONE,
+        scaleByDistance: new Cesium.NearFarScalar(100, 2.0, 2000, 0.3),
       },
       properties: {
         pnu: props.pnu,
