@@ -576,39 +576,40 @@ viewer.camera.flyTo({
 
 ### 3.7 API 엔드포인트 명세
 
-#### 3.7.1 건물 데이터 API
+#### 3.7.1 건물 데이터 API — ✅ 구현 완료
 
-| Method | Path | 설명 | 응답 |
+| Method | Path | 설명 | 응답 | 상태 |
+|--------|------|------|------|------|
+| GET | `/api/v1/buildings/` | 건물 목록 (bbox/필터) | GeoJSON FeatureCollection (LIMIT 3000) | ✅ |
+| GET | `/api/v1/buildings/{pnu}` | 건물 상세 + 에너지 분해 | Building GeoJSON Feature | ✅ |
+| GET | `/api/v1/buildings/stats` | 현재 뷰 통계 (등급/용도 분포) | Stats JSON | ✅ |
+| GET | `/api/v1/buildings/pick` | 클릭 위치 최근접 건물 (PostGIS KNN) | `{pnu, building_name}` | ✅ |
+| GET | `/api/v1/buildings/centroids` | 경량 centroid 목록 | `{count, centroids[]}` | ✅ |
+
+#### 3.7.2 필터/검색 API — ✅ 구현 완료
+
+| Method | Path | 설명 | 파라미터 | 상태 |
+|--------|------|------|---------|------|
+| GET | `/api/v1/search` | 건물명 검색 (ILIKE) | `q` (max 100자) | ✅ |
+| POST | `/api/v1/filter` | 다중 조건 필터 | `energy_grades[]`, `vintage_classes[]`, `usage_types[]`, `bbox[]` | ✅ |
+| GET | `/api/v1/filter/export` | 필터 결과 CSV 다운로드 | 동일 필터 파라미터 | ✅ |
+
+#### 3.7.3 시뮬레이션 API — Phase 4 예정
+
+| Method | Path | 설명 | 상태 |
 |--------|------|------|------|
-| GET | `/api/v1/buildings` | 건물 목록 (bbox 필터) | GeoJSON FeatureCollection |
-| GET | `/api/v1/buildings/{pnu}` | 건물 상세 | Building JSON |
-| GET | `/api/v1/buildings/{pnu}/energy` | 건물 에너지 상세 | EnergyResult JSON |
-| GET | `/api/v1/buildings/stats` | 현재 뷰 통계 | Stats JSON |
+| GET | `/api/v1/archetypes` | 원형 목록 | 미구현 |
+| POST | `/api/v1/simulate` | 시뮬레이션 실행 (async) | 미구현 |
+| GET | `/api/v1/simulate/{task_id}` | 시뮬레이션 상태 | 미구현 |
 
-#### 3.7.2 필터/검색 API
+#### 3.7.4 관리 API — Phase 5 예정
 
-| Method | Path | 설명 | 파라미터 |
-|--------|------|------|---------|
-| GET | `/api/v1/search` | 주소 검색 | `q` (검색어) |
-| POST | `/api/v1/filter` | 조건 필터링 | `energy_grade`, `vintage`, `usage`, `bbox` |
-| GET | `/api/v1/filter/export` | 필터 결과 CSV | 동일 필터 파라미터 |
-
-#### 3.7.3 시뮬레이션 API
-
-| Method | Path | 설명 | 응답 |
+| Method | Path | 설명 | 상태 |
 |--------|------|------|------|
-| GET | `/api/v1/archetypes` | 원형 목록 | Archetype[] |
-| POST | `/api/v1/simulate` | 시뮬레이션 실행 (async) | `{ task_id }` |
-| GET | `/api/v1/simulate/{task_id}` | 시뮬레이션 상태 | `{ status, result }` |
-
-#### 3.7.4 관리 API
-
-| Method | Path | 설명 |
-|--------|------|------|
-| POST | `/api/v1/admin/sync/footprints` | GIS건물통합정보 동기화 트리거 |
-| POST | `/api/v1/admin/sync/ledger` | 건축물대장 동기화 트리거 |
-| POST | `/api/v1/admin/tiles/regenerate` | 3D Tiles 재생성 트리거 |
-| GET | `/api/v1/admin/status` | 시스템 상태 (DB, Redis, 최근 동기화) |
+| POST | `/api/v1/admin/sync/footprints` | GIS건물통합정보 동기화 트리거 | 미구현 (CLI 스크립트로 수동 실행) |
+| POST | `/api/v1/admin/sync/ledger` | 건축물대장 동기화 트리거 | 미구현 |
+| POST | `/api/v1/admin/tiles/regenerate` | 3D Tiles 재생성 트리거 | 미구현 |
+| GET | `/api/v1/admin/status` | 시스템 상태 | 미구현 (`/health` 엔드포인트만 존재) |
 
 ---
 

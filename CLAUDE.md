@@ -2,17 +2,56 @@
 
 ## 프로젝트 현재 상태
 
-**단계: MVP 구현 진행 중**
+**단계: Phase 3 (웹 뷰어 MVP) 진행 중** — 2026-03-22 기준
 
-구현 완료:
-- `docs/` — PRD, Architecture, RFC 문서 완성 (v1.1)
-- `docker-compose.yml`, `Dockerfile`, `pyproject.toml` — 인프라 설정 완료
-- `.env.example` — 환경변수 템플릿
+### 구현 완료 (Phase 0~2)
 
-구현 진행 중:
-- `src/` — 백엔드 모듈 구현 중
-- `tests/` — 디렉토리 구조만 존재, **테스트 파일은 각 모듈 구현 시 함께 작성**
-- `frontend/` — 미착수
+| 모듈 | 상태 | 설명 |
+|------|------|------|
+| `docs/` | ✅ 100% | PRD, Architecture, RFC 문서 (v1.1) |
+| `docker-compose.yml` | ✅ 100% | PostGIS(5434), Redis(6379), API(8000), Worker |
+| `src/data_ingestion/` | ✅ 90% | VWorld LT_C_SPBD 72,931건 footprint, 건축물대장 총괄표제부 790건 + 표제부 21,401건 |
+| `src/geometry/` | ✅ 100% | PNU 생성/파싱, 좌표 변환 (EPSG:5174→4326) |
+| `src/simulation/` | ⚠️ 30% | archetype 40종 정의 + 에너지 추정. EnergyPlus/ML 미연동 |
+| `src/tile_generation/` | ✅ 80% | trimesh GLB 생성 (HLOD 미구현) |
+| `src/visualization/` | ✅ 100% | buildings/search/filter/pick/stats/centroids API |
+| `db/` | ✅ 100% | init.sql 스키마 + views.sql LATERAL JOIN 뷰 |
+| `tests/unit/` | ✅ 21건 | PNU, 열화계수, 아키타입, 타일 색상 |
+
+### 구현 진행 중 (Phase 3)
+
+| 모듈 | 상태 | 설명 |
+|------|------|------|
+| `frontend/` | ⚠️ 70% | CesiumJS + OSM Buildings + 에너지 색상 + 상세 패널. 필터/주소검색 미구현 |
+
+### 미착수 (Phase 4~5)
+
+| 모듈 | 설명 |
+|------|------|
+| EnergyPlus 연동 | OpenStudio/geomeppy 시뮬레이션 |
+| ML 대리모델 | XGBoost 학습 |
+| 온돌 모델링 | 바닥복사난방 (공동주택) |
+| 리트로핏 추정 | 창호/외단열 변경 효과 |
+| UHI 보정 | 도시열섬 효과 반영 |
+
+### 기술 스택 확정
+
+| 영역 | 기술 |
+|------|------|
+| 백엔드 | FastAPI + SQLAlchemy + PostGIS + Celery + Redis |
+| 프론트엔드 | React 19 + CesiumJS (직접, Resium 미사용) + Zustand + TailwindCSS + Recharts |
+| 3D | Cesium OSM Buildings (Ion 96188) + CustomShader (창문/지붕) |
+| 빌드 | Vite 6 + TypeScript |
+| 데이터 | VWorld API (footprint) + data.go.kr HTTPS (건축물대장) |
+
+### 주요 기술 결정 사항
+
+1. **Google Photorealistic 3D Tiles**: 한국 미지원 확인 (2026-03). Cesium OSM Buildings로 대체
+2. **VWorld 3D 텍스처 다운로드**: 2019년 폐쇄 (국가보안). 절차적 셰이더로 대체
+3. **PublicDataReader 라이브러리**: HTTPS 엔드포인트 직접 호출로 대체 (http→https 문제)
+4. **React StrictMode**: Cesium Viewer lifecycle 충돌로 비활성화
+5. **서버사이드 pick**: 72K centroid 클라이언트 로딩 대신 PostGIS KNN (`<->` 연산자)
+6. **건축물대장 JOIN**: LATERAL JOIN으로 PNU당 1건 매칭 (1:N 중복 방지)
 
 ## 빌드 & 실행
 

@@ -108,7 +108,7 @@
 | **GIS건물통합정보** | data.go.kr/data/15123970 | **2D 건물 footprint 폴리곤** + 일부 속성 | SHP/WFS | 일별 | 벌크 SHP 다운로드 + WFS |
 | **건물에너지정보** | data.go.kr/data/15135963 | 건물 에너지 소비 통계 | JSON/XML | 분기 | REST API |
 | **공공건축물 에너지소비량** | data.go.kr/data/3069931 | 공공건물 전기/가스/열 소비 | CSV | 연간 | 파일 다운로드 |
-| **VWorld** | vworld.kr | 3D 시각화 베이스맵, 분석 API (일조권, 가시권). ~~국가공간정보포털(nsdi.go.kr)은 2024.1.1 서비스 종료, VWorld로 통합~~ | WebGL API | - | WebGL API (뷰 전용, 3D 메시 다운로드 불가) |
+| **VWorld LT_C_SPBD** | vworld.kr | **건물 footprint 폴리곤** + 층수 + 건물관리번호 (PNU 추출 가능). ~~3D 메시 API는 2019년 폐쇄~~ | GeoJSON/API | - | REST API (Data GetFeature, bbox 10km 제한 → 타일 분할) |
 | **도로명주소 API** | data.go.kr/data/15057017 | 도로명↔지번 매핑, 좌표 변환. **사용자 주소 검색 필수** | JSON/XML | 수시 | REST API (행안부) |
 | **서울 열린데이터광장** | data.seoul.go.kr | 서울시 건축물 데이터 (속성 풍부, 갱신 빠름) | CSV/API | 수시 | REST API / 파일 |
 
@@ -116,6 +116,8 @@
 
 1. **건축물대장에 지오메트리 없음**: 속성만 제공. 건물 폴리곤은 GIS건물통합정보에서 취득
 2. **VWorld 3D 메시 벌크 다운로드 불가**: 2019년 폐쇄 (국가보안). 자체 3D 모델 생성 필수
+3. **Google Photorealistic 3D Tiles 한국 미지원**: 2026-03 확인. Cesium OSM Buildings (Ion 96188)로 대체
+4. **건축물대장 총괄표제부만으로는 동별 정보 부족**: 표제부(getBrTitleInfo) 추가 수집 필요 (구조, 준공일, 동별 층수)
 3. **API Rate Limit**: 개발계정 1,000건/일, 운영계정 100,000건/일 → 초기 벌크 SHP 다운로드 후 API는 델타 동기화용
 4. **데이터 품질 편차**: 지자체별 필드 누락/형식 불일치. 특히 구축 시기가 다른 읍/면/동
 5. **조인 키**: PNU 코드 (19자리: 시도2+시군구3+읍면동3+리2+산대지1+본번4+부번4)
@@ -415,56 +417,63 @@ src/
 
 ## 11. 타임라인 & 마일스톤 (총 20~22주)
 
-### Phase 0: 인프라 & 보안 기반 (2주)
-- [ ] Docker Compose 개발환경 구축 (PostGIS, Redis, FastAPI)
-- [ ] CI/CD 파이프라인 설정 (GitHub Actions)
-- [ ] API Key + Rate Limiting 보안 기초
-- [ ] 공공데이터포털/VWorld/서울열린데이터 가입 및 API 키 발급
-- [ ] **운영계정 신청** (개발계정 1,000건/일로는 불가)
-- **마일스톤**: 로컬 개발환경 + API 접근 확보
+### Phase 0: 인프라 & 보안 기반 (2주) — ✅ 완료
+- [x] Docker Compose 개발환경 구축 (PostGIS:5434, Redis:6379, FastAPI:8000, Celery Worker)
+- [ ] CI/CD 파이프라인 설정 (GitHub Actions) — 미착수
+- [x] API Key 보안 기초 (`.env` 분리, 프론트엔드 환경변수)
+- [x] 공공데이터포털/VWorld/서울열린데이터/도로명주소 API 키 발급
+- [x] GZip 미들웨어, CORS 환경변수화, PNU 입력 검증
+- [ ] **운영계정 신청** — 개발계정 사용 중
+- **마일스톤**: ✅ 로컬 개발환경 + API 접근 확보
 
-### Phase 1: 데이터 파이프라인 (5주)
-- [ ] PostGIS DB 구축 + 스키마 생성
-- [ ] GIS건물통합정보 SHP 벌크 수집 → PostGIS 적재
-- [ ] 건축물대장 API 연동 (PublicDataReader)
-- [ ] **도로명주소 API 연동** (주소 검색용)
-- [ ] PNU + 건물관리번호 복합키 매칭 (집합건물 1:N 처리)
-- [ ] 데이터 클렌징 파이프라인 (Bronze→Silver→Gold 레이어)
-- **마일스톤**: 마포구 건물 데이터 PostGIS 통합 완료 (매칭률 90%+)
+### Phase 1: 데이터 파이프라인 (5주) — ✅ 완료
+- [x] PostGIS DB 구축 + 스키마 생성 (`db/init.sql`, `db/views.sql`)
+- [x] ~~GIS건물통합정보 SHP 벌크 수집~~ → **VWorld LT_C_SPBD API**로 72,931건 footprint 수집 (9타일 분할, 10km 제한 준수)
+- [x] 건축물대장 API 연동 — ~~PublicDataReader~~ → **HTTPS 직접 호출** (총괄표제부 790건 + 표제부 21,401건)
+- [x] **도로명주소 API 연동** — 키 확보, 검색 테스트 완료
+- [x] PNU 매칭 — VWorld `bd_mgt_sn`에서 PNU 추출, LATERAL JOIN으로 1:N 중복 방지
+- [x] `buildings_enriched` Materialized View — footprint + ledger LATERAL JOIN, 72,930건
+- [x] archetype 기반 에너지 추정 — 72,930건 (한국어 용도 매핑 포함)
+- **마일스톤**: ✅ 마포구 건물 데이터 PostGIS 통합 완료
 
-### Phase 2: 3D 타일 생성 (3주)
-- [ ] trimesh 기반 LoD1 건물 생성 파이프라인
-- [ ] pg2b3dm으로 3D Tiles 변환
-- [ ] S3 + CDN 배포 파이프라인 (타일 버전 관리: /tiles/v{hash}/)
-- [ ] HLOD 타일링 전략 구현
-- **마일스톤**: 대상 지역 3D Tiles 정적 배포 완료
+### Phase 2: 3D 타일 생성 (3주) — ✅ 기본 완료
+- [x] trimesh 기반 LoD1 건물 생성 파이프라인 (`generate.py`, GLB 26MB)
+- [ ] ~~pg2b3dm으로 3D Tiles 변환~~ — trimesh GLB 방식 채택 (단일 파일, HLOD 미적용)
+- [x] FastAPI StaticFiles로 GLB 서빙 (`/tiles/buildings.glb`)
+- [ ] S3 + CDN 배포 — 미착수 (로컬 개발 중)
+- [ ] HLOD 타일링 전략 — 미구현 (72K 건물 단일 GLB로 충분)
+- **마일스톤**: ✅ 마포구 3D 건물 GLB 생성 완료 (34,186→72,931건)
 
-### Phase 3: 웹 뷰어 MVP (5주)
-- [ ] React + CesiumJS (Resium) 기본 뷰어
-- [ ] 베이스맵 통합 (CesiumJS 호환 방식: XYZ 래스터 타일 또는 커스텀 ImageryProvider)
-- [ ] 3D Tiles 로딩 및 표시
-- [ ] CesiumJS 코드 스플리팅/지연 로딩 (번들 ~1.5MB 최적화)
-- [ ] 에너지등급 색상 코딩
-- [ ] 건물 클릭 → 상세 정보 패널 (핵심 지표 3개 강조 + 나머지 접힌 섹션)
-- [ ] **도로명주소 검색** (행안부 API 연동)
-- [ ] 기본 필터 (에너지등급, 건축년도, 용도)
-- [ ] **시작 화면: 2D 지도 + 검색바** (3D 글로브 대신 업무 효율 우선)
-- **마일스톤**: 마포구 3D 에너지 지도 라이브 데모
+### Phase 3: 웹 뷰어 MVP (5주) — ⚠️ 진행 중
+- [x] React 19 + CesiumJS (직접 사용, ~~Resium~~ CJS 호환 문제로 제거)
+- [x] Bing Maps 위성 베이스맵 (~~OSM 타일~~ CORS 문제로 제외)
+- [x] Cesium OSM Buildings (Ion 96188) 3D 건물 표시 (~~Google 3D Tiles~~ 한국 미지원)
+- [x] CustomShader: 벽면 창문 패턴 + 지붕 색상 다양화
+- [x] 에너지등급/소비량 기반 건물 높이별 색상 코딩
+- [x] 건물 클릭 → 상세 정보 패널 (에너지 등급, kWh/m², 면적 + 에너지 분해 차트)
+- [x] 서버사이드 pick (`/buildings/pick` PostGIS KNN, 72K centroid 클라이언트 로딩 불필요)
+- [x] 건물명 검색 (없으면 지번 자동 표시)
+- [x] ErrorBoundary + WebGL context loss 핸들링
+- [x] 성능 최적화: shadows off, requestRenderMode, AbortController, GZip
+- [ ] **도로명주소 검색** (행안부 API 연동) — 키 확보, 프론트엔드 미연동
+- [ ] 기본 필터 (에너지등급, 건축년도, 용도) — 백엔드 완료, 프론트엔드 미구현
+- [ ] 검색 결과 → 카메라 이동 — 미구현
+- **마일스톤**: ⚠️ 3D 에너지 지도 기본 동작 확인, 필터/주소검색 잔여
 
-### Phase 4: 에너지 시뮬레이션 연동 (5주)
-- [ ] 건물 원형 분류 체계 구축 (**구조 유형 포함**, 60~80개 원형)
-- [ ] 외피 U-value 매핑 파이프라인 + **열화계수** (10년당 1.3배)
-- [ ] **온돌(바닥복사난방)** 모델링 (공동주택 원형)
-- [ ] OpenStudio + EnergyPlus 원형별 시뮬레이션
-- [ ] ML 대리모델 학습 (사용자 추후 대체)
-- [ ] 시뮬레이션 결과 → 3D 건물 바인딩
-- [ ] **간소화 리트로핏 추정** (창호/외단열 변경 시 에너지 절감 예측)
-- **마일스톤**: 에너지 시뮬레이션 결과가 3D 건물에 표시 + 리트로핏 기본 기능
+### Phase 4: 에너지 시뮬레이션 연동 (5주) — 미착수
+- [x] 건물 원형 분류 체계 — 40종 정의 (5용도 × 4연대 × 2~3구조)
+- [x] 외피 U-value 매핑 + 열화계수 (10년당 1.0/1.3/1.7/2.0)
+- [ ] **온돌(바닥복사난방)** 모델링 — 미구현
+- [ ] OpenStudio + EnergyPlus 원형별 시뮬레이션 — 미착수
+- [ ] ML 대리모델 학습 — 미착수
+- [ ] 시뮬레이션 결과 → 3D 건물 바인딩 — 미착수
+- [ ] 간소화 리트로핏 추정 — 미착수
+- **마일스톤**: 미착수
 
-### Phase 5: 고도화 (지속)
+### Phase 5: 고도화 (지속) — 미착수
 - [ ] 상세 리트로핏 시나리오 비교 뷰
 - [ ] 통계 대시보드
-- [ ] 내보내기 (CSV, PDF 리포트)
+- [ ] 내보내기 (CSV, PDF 리포트) — CSV export 엔드포인트만 구현
 - [ ] UHI(도시열섬) 보정 적용
 - [ ] 접근성 대안 뷰 (표 형태, WCAG 2.1 AA)
 - [ ] 추가 지역 확장
