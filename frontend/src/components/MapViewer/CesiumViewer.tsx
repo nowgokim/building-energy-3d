@@ -46,13 +46,13 @@ export default function CesiumViewerComponent() {
     // Fly to 마포구
     viewer.camera.flyTo({
       destination: Cesium.Cartesian3.fromDegrees(
-        MAPO_CENTER.lng,
-        MAPO_CENTER.lat,
-        600
+        MAPO_CENTER.lng - 0.005,
+        MAPO_CENTER.lat - 0.003,
+        400
       ),
       orientation: {
-        heading: Cesium.Math.toRadians(0),
-        pitch: Cesium.Math.toRadians(-90),
+        heading: Cesium.Math.toRadians(30),
+        pitch: Cesium.Math.toRadians(-30),
         roll: 0,
       },
       duration: 2,
@@ -123,8 +123,8 @@ async function loadEnergyMarkers(viewer: Cesium.Viewer) {
     if (!props.pnu || !props.lng || !props.lat) continue;
 
     const buildingHeight = props.height ?? 10;
-    // 마포구 해발 + 건물 높이 + 약간의 오프셋
-    const markerHeight = 30 + buildingHeight + 3;
+    // 건물 지붕 높이 (해발 ~15m + 건물 높이)
+    const markerHeight = 15 + buildingHeight;
 
     // Color by energy grade or consumption
     let colorStr: string;
