@@ -58,12 +58,16 @@ export const useAppStore = create<AppState>((set) => ({
 
   setStats: (stats) => set({ stats }),
 
-  setError: (msg) => {
-    set({ error: msg });
-    if (msg) {
-      setTimeout(() => set({ error: null }), 4000);
-    }
-  },
+  setError: (() => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    return (msg: string | null) => {
+      if (timer) clearTimeout(timer);
+      set({ error: msg });
+      if (msg) {
+        timer = setTimeout(() => { set({ error: null }); timer = null; }, 4000);
+      }
+    };
+  })(),
 
   setFilters: (partial) =>
     set((state) => ({

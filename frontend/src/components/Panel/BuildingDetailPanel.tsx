@@ -47,7 +47,7 @@ export default function BuildingDetailPanel() {
         </div>
         <div className="text-center p-2 rounded-lg bg-gray-50">
           <div className="text-lg font-bold text-gray-700">
-            {p.total_area ? p.total_area.toLocaleString() : "-"}
+            {p.total_area != null ? p.total_area.toLocaleString() : "-"}
           </div>
           <div className="text-[10px] text-gray-500">m² 연면적</div>
         </div>

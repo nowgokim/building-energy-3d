@@ -13,6 +13,16 @@ export default defineConfig({
     },
   },
   optimizeDeps: {
-    include: ["resium", "cesium"],
+    include: ["cesium"],
+  },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          cesium: ["cesium"],
+          recharts: ["recharts"],
+        },
+      },
+    },
   },
 });

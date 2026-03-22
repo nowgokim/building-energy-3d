@@ -19,6 +19,58 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/buildings", tags=["buildings"])
 
 
+@router.get("/pick")
+def pick_building(
+    lng: float = Query(..., description="Click longitude"),
+    lat: float = Query(..., description="Click latitude"),
+    db: Session = Depends(get_db_dependency),
+) -> dict:
+    """Find the nearest building to a click position using PostGIS KNN."""
+    sql = text("""
+        SELECT pnu, building_name,
+               ST_Distance(geom, ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)) AS dist
+        FROM buildings_enriched
+        WHERE ST_DWithin(geom, ST_SetSRID(ST_MakePoint(:lng, :lat), 4326), 0.001)
+        ORDER BY geom <-> ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)
+        LIMIT 1
+    """)
+    row = db.execute(sql, {"lng": lng, "lat": lat}).fetchone()
+    if row is None:
+        return {"pnu": None, "building_name": None}
+    return {"pnu": row.pnu, "building_name": row.building_name}
+
+
+@router.get("/centroids")
+def list_centroids(
+    west: Optional[float] = Query(None),
+    south: Optional[float] = Query(None),
+    east: Optional[float] = Query(None),
+    north: Optional[float] = Query(None),
+    db: Session = Depends(get_db_dependency),
+) -> dict:
+    """Lightweight centroid-only endpoint for click matching."""
+    conditions: list[str] = []
+    params: dict = {}
+    if all(v is not None for v in [west, south, east, north]):
+        conditions.append(
+            "ST_Intersects(geom, ST_MakeEnvelope(:west, :south, :east, :north, 4326))"
+        )
+        params.update({"west": west, "south": south, "east": east, "north": north})
+
+    where_clause = "WHERE " + " AND ".join(conditions) if conditions else ""
+
+    sql = text(f"""
+        SELECT pnu, ST_X(ST_Centroid(geom)) AS lng, ST_Y(ST_Centroid(geom)) AS lat
+        FROM buildings_enriched
+        {where_clause}
+    """)
+    rows = db.execute(sql, params).fetchall()
+    return {
+        "count": len(rows),
+        "centroids": [{"pnu": r.pnu, "lng": float(r.lng), "lat": float(r.lat)} for r in rows],
+    }
+
+
 @router.get("/stats")
 def get_building_stats(
     west: Optional[float] = Query(None),
@@ -168,7 +220,7 @@ def list_buildings(
         FROM buildings_enriched b
         LEFT JOIN energy_results er ON b.pnu = er.pnu
         {where_clause}
-        LIMIT 5000
+        LIMIT 3000
     """)
 
     rows = db.execute(sql, params).fetchall()

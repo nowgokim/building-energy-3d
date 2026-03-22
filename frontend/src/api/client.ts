@@ -10,7 +10,8 @@ async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
   let resp: Response;
   try {
     resp = await fetch(url, init);
-  } catch {
+  } catch (e) {
+    if ((e as Error).name === "AbortError") throw e;
     throw new Error("서버에 연결할 수 없습니다");
   }
   if (!resp.ok) {
@@ -23,29 +24,22 @@ async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
   return resp.json();
 }
 
-export async function getBuildings(params?: {
-  west?: number;
-  south?: number;
-  east?: number;
-  north?: number;
-  energy_grade?: string;
-  usage_type?: string;
-  vintage?: string;
-}): Promise<BuildingCollection> {
-  const sp = new URLSearchParams();
-  if (params) {
-    for (const [k, v] of Object.entries(params)) {
-      if (v !== undefined && v !== null) sp.set(k, String(v));
-    }
-  }
-  const qs = sp.toString();
-  return fetchJSON(`${API_BASE_URL}/buildings/${qs ? "?" + qs : ""}`);
+export async function pickBuilding(
+  lng: number,
+  lat: number,
+  signal?: AbortSignal
+): Promise<{ pnu: string | null; building_name: string | null }> {
+  return fetchJSON(
+    `${API_BASE_URL}/buildings/pick?lng=${lng}&lat=${lat}`,
+    { signal }
+  );
 }
 
 export async function getBuildingDetail(
-  pnu: string
+  pnu: string,
+  signal?: AbortSignal
 ): Promise<BuildingDetail> {
-  return fetchJSON(`${API_BASE_URL}/buildings/${pnu}`);
+  return fetchJSON(`${API_BASE_URL}/buildings/${pnu}`, { signal });
 }
 
 export async function getStats(bbox?: {
