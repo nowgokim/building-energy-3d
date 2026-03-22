@@ -148,28 +148,77 @@ async function loadEnergyDataAndBuildings(viewer: Cesium.Viewer) {
       buildingCentroids.push({ pnu: props.pnu, lng: props.lng, lat: props.lat });
     }
 
-    // 2) Load OSM Buildings with energy-based coloring
+    // 2) Load OSM Buildings
     const tileset = await Cesium.Cesium3DTileset.fromIonAssetId(96188);
     if (viewer.isDestroyed()) return;
 
-    // Color by height as proxy (OSM buildings don't have PNU)
-    // Low buildings = warmer color (older, less efficient)
-    // Tall buildings = cooler color (newer, more efficient)
+    // Energy color by height
     tileset.style = new Cesium.Cesium3DTileStyle({
       color: {
         conditions: [
-          ["${feature['cesium#estimatedHeight']} > 50", "color('#4cb848', 0.85)"],  // 고층 — 녹색
-          ["${feature['cesium#estimatedHeight']} > 30", "color('#8dc63f', 0.85)"],
-          ["${feature['cesium#estimatedHeight']} > 20", "color('#d4e157', 0.85)"],
-          ["${feature['cesium#estimatedHeight']} > 10", "color('#fdd835', 0.85)"],
-          ["${feature['cesium#estimatedHeight']} > 5", "color('#ffb300', 0.85)"],
-          ["true", "color('#fb8c00', 0.85)"],  // 저층 — 주황
+          ["${feature['cesium#estimatedHeight']} > 50", "color('#4cb848', 0.9)"],
+          ["${feature['cesium#estimatedHeight']} > 30", "color('#8dc63f', 0.9)"],
+          ["${feature['cesium#estimatedHeight']} > 20", "color('#d4e157', 0.9)"],
+          ["${feature['cesium#estimatedHeight']} > 10", "color('#fdd835', 0.9)"],
+          ["${feature['cesium#estimatedHeight']} > 5", "color('#ffb300', 0.9)"],
+          ["true", "color('#fb8c00', 0.9)"],
         ],
       },
     });
 
+    // Procedural wall texture shader
+    tileset.customShader = new Cesium.CustomShader({
+      fragmentShaderText: `
+        void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material) {
+          vec3 normalEC = fsInput.attributes.normalEC;
+          // Detect walls vs roofs using the up direction in eye coordinates
+          vec3 upEC = normalize(czm_normal * vec3(0.0, 0.0, 1.0));
+          float upDot = abs(dot(normalEC, upEC));
+
+          if (upDot < 0.4) {
+            // === WALL ===
+            vec3 posWC = (czm_inverseView * vec4(fsInput.attributes.positionEC, 1.0)).xyz;
+            float scale = 1.0;
+
+            // Floor lines every ~3.3m
+            float floorH = 3.3 * scale;
+            float frac = mod(length(posWC), floorH) / floorH;
+
+            // Window grid
+            float wx = mod(posWC.x + posWC.y, 2.5 * scale);
+            float wy = frac * floorH;
+            float isWinX = step(0.5, wx) * (1.0 - step(1.8, wx));
+            float isWinY = step(0.6, wy) * (1.0 - step(2.6, wy));
+            float isWindow = isWinX * isWinY;
+
+            // Wall color: slightly darker base
+            vec3 wallBase = material.diffuse * 0.8;
+            vec3 glassColor = vec3(0.15, 0.22, 0.32);
+            vec3 reflectColor = vec3(0.35, 0.45, 0.55);
+
+            vec3 winColor = mix(glassColor, reflectColor, 0.3);
+            material.diffuse = mix(wallBase, winColor, isWindow * 0.8);
+
+            // Floor separator
+            float lineF = smoothstep(0.0, 0.04, frac) * (1.0 - smoothstep(0.96, 1.0, frac));
+            material.diffuse *= mix(0.6, 1.0, lineF);
+          } else {
+            // === ROOF ===
+            material.diffuse *= 0.88;
+          }
+        }
+      `,
+    });
+
+    // Lower buildings slightly to reduce floating above terrain
+    const cartographic = Cesium.Cartographic.fromDegrees(MAPO_CENTER.lng, MAPO_CENTER.lat, -2.0);
+    const surface = Cesium.Cartesian3.fromRadians(cartographic.longitude, cartographic.latitude, 0.0);
+    const offset = Cesium.Cartesian3.fromRadians(cartographic.longitude, cartographic.latitude, -2.0);
+    const translation = Cesium.Cartesian3.subtract(offset, surface, new Cesium.Cartesian3());
+    tileset.modelMatrix = Cesium.Matrix4.fromTranslation(translation);
+
     viewer.scene.primitives.add(tileset);
-    console.log("OSM Buildings loaded with energy coloring");
+    console.log("OSM Buildings loaded with textures");
   } catch (e) {
     console.error("Failed to load buildings:", e);
   }
