@@ -401,16 +401,7 @@
           textureEntities.push({ pnu: pnu, entities: addedEntities });
         }
 
-        // Fly to building
-        viewer.camera.flyTo({
-          destination: Cesium.Cartesian3.fromDegrees(p.lng - 0.001, p.lat - 0.001, height + 100),
-          orientation: {
-            heading: Cesium.Math.toRadians(30),
-            pitch: Cesium.Math.toRadians(-30),
-            roll: 0,
-          },
-          duration: 1.5,
-        });
+        // 카메라 위치 유지 (이동하지 않음)
 
         document.getElementById("tex-status").textContent =
           "✅ 적용 완료: " + (p.building_name || pnu) + " (" + width.toFixed(0) + "m × " + depth.toFixed(0) + "m × " + height + "m)";
