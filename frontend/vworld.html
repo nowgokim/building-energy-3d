@@ -137,14 +137,19 @@
       document.getElementById("loading").style.display = "none";
       const viewer = ws3d.viewer;
 
-      // --- 성능 최적화 ---
-      // 타일 동시 요청 수 증가 (기본 6 → 18)
-      Cesium.RequestScheduler.requestsByServer["xdworld.vworld.kr:443"] = 18;
-      // 렌더링 최적화
+      // --- 성능 + 안정화 ---
+      // 타일 동시 요청 수 증가
+      Cesium.RequestScheduler.requestsByServer["xdworld.vworld.kr:443"] = 12;
+      // 타일 캐시 유지 (건물 깜빡임 방지)
+      viewer.scene.globe.tileCacheSize = 1000;
+      // 먼 거리 fog (너무 많은 타일 로드 방지)
       viewer.scene.fog.enabled = true;
-      viewer.scene.fog.density = 0.0003;
-      // 먼 거리 건물 디테일 축소 (GPU 절약)
-      viewer.scene.globe.maximumScreenSpaceError = 4;
+      viewer.scene.fog.density = 0.0002;
+      // 3D 타일 메모리 유지 (언로드 방지)
+      viewer.scene.globe.maximumScreenSpaceError = 2;
+      // 프레임 안정화
+      viewer.scene.debugShowFramesPerSecond = false;
+      viewer.scene.useDepthPicking = true;
 
       // Load stats
       fetch(API + "/buildings/stats")
