@@ -444,21 +444,20 @@ src/
 - [ ] HLOD 타일링 전략 — 미구현 (72K 건물 단일 GLB로 충분)
 - **마일스톤**: ✅ 마포구 3D 건물 GLB 생성 완료 (34,186→72,931건)
 
-### Phase 3: 웹 뷰어 MVP (5주) — ⚠️ 진행 중
+### Phase 3: 웹 뷰어 MVP (5주) — ✅ 기본 완료
 - [x] React 19 + CesiumJS (직접 사용, ~~Resium~~ CJS 호환 문제로 제거)
-- [x] Bing Maps 위성 베이스맵 (~~OSM 타일~~ CORS 문제로 제외)
-- [x] Cesium OSM Buildings (Ion 96188) 3D 건물 표시 (~~Google 3D Tiles~~ 한국 미지원)
-- [x] CustomShader: 벽면 창문 패턴 + 지붕 색상 다양화
-- [x] 에너지등급/소비량 기반 건물 높이별 색상 코딩
-- [x] 건물 클릭 → 상세 정보 패널 (에너지 등급, kWh/m², 면적 + 에너지 분해 차트)
-- [x] 서버사이드 pick (`/buildings/pick` PostGIS KNN, 72K centroid 클라이언트 로딩 불필요)
-- [x] 건물명 검색 (없으면 지번 자동 표시)
+- [x] **VWorld WebGL 3D API 3.0 뷰어** (`/vworld.html`) — 서울 LoD3-4 텍스처 건물, Cesium 내장
+- [x] React 뷰어 (`/`) — 자체 익스트루전 + EllipsoidTerrainProvider + 에너지 색상
+- [x] ~~Google 3D Tiles~~ 한국 미지원 → ~~OSM Buildings~~ 높이 부정확 → **VWorld 3D API 채택**
+- [x] 건물 클릭 → 서버사이드 pick (PostGIS KNN, 3ms) → 상세 정보 패널 + 에너지 분해 차트
+- [x] 건물명 검색 (없으면 지번 자동 표시) + 검색 결과 → 카메라 이동 (VWorld 뷰어)
 - [x] ErrorBoundary + WebGL context loss 핸들링
-- [x] 성능 최적화: shadows off, requestRenderMode, AbortController, GZip
+- [x] 성능 최적화: RequestScheduler 18, fog, GZip, AbortController, Entity eviction (8K cap)
+- [x] 건축물대장 표제부 수집 (21,401건) → 동별 구조/준공일/층수 정확도 향상
+- [x] LATERAL JOIN — PNU당 최적 1건 매칭 (1:N 중복 제거, 75K→73K행)
 - [ ] **도로명주소 검색** (행안부 API 연동) — 키 확보, 프론트엔드 미연동
 - [ ] 기본 필터 (에너지등급, 건축년도, 용도) — 백엔드 완료, 프론트엔드 미구현
-- [ ] 검색 결과 → 카메라 이동 — 미구현
-- **마일스톤**: ⚠️ 3D 에너지 지도 기본 동작 확인, 필터/주소검색 잔여
+- **마일스톤**: ✅ 마포구 3D 에너지 지도 VWorld 텍스처 건물 라이브 데모 완료
 
 ### Phase 4: 에너지 시뮬레이션 연동 (5주) — 미착수
 - [x] 건물 원형 분류 체계 — 40종 정의 (5용도 × 4연대 × 2~3구조)

@@ -2,27 +2,30 @@
 
 ## 프로젝트 현재 상태
 
-**단계: Phase 3 (웹 뷰어 MVP) 진행 중** — 2026-03-22 기준
+**단계: Phase 3 (웹 뷰어 MVP) 완료** — 2026-03-23 기준
 
-### 구현 완료 (Phase 0~2)
+### 구현 완료 (Phase 0~3)
 
 | 모듈 | 상태 | 설명 |
 |------|------|------|
-| `docs/` | ✅ 100% | PRD, Architecture, RFC 문서 (v1.1) |
+| `docs/` | ✅ 100% | PRD v1.2, Architecture v1.2, RFC 문서 |
 | `docker-compose.yml` | ✅ 100% | PostGIS(5434), Redis(6379), API(8000), Worker |
-| `src/data_ingestion/` | ✅ 90% | VWorld LT_C_SPBD 72,931건 footprint, 건축물대장 총괄표제부 790건 + 표제부 21,401건 |
+| `src/data_ingestion/` | ✅ 95% | VWorld LT_C_SPBD 72,931건, 건축물대장 총괄표제부 790건 + 표제부 21,401건 |
 | `src/geometry/` | ✅ 100% | PNU 생성/파싱, 좌표 변환 (EPSG:5174→4326) |
-| `src/simulation/` | ⚠️ 30% | archetype 40종 정의 + 에너지 추정. EnergyPlus/ML 미연동 |
-| `src/tile_generation/` | ✅ 80% | trimesh GLB 생성 (HLOD 미구현) |
-| `src/visualization/` | ✅ 100% | buildings/search/filter/pick/stats/centroids API |
-| `db/` | ✅ 100% | init.sql 스키마 + views.sql LATERAL JOIN 뷰 |
+| `src/simulation/` | ⚠️ 30% | archetype 40종 + 에너지 추정. EnergyPlus/ML 미연동 |
+| `src/tile_generation/` | ✅ 80% | trimesh GLB 생성 |
+| `src/visualization/` | ✅ 100% | buildings/search/filter/pick/stats/centroids API + GZip |
+| `db/` | ✅ 100% | init.sql + views.sql LATERAL JOIN (PNU 1:1 매칭) |
 | `tests/unit/` | ✅ 21건 | PNU, 열화계수, 아키타입, 타일 색상 |
+| `frontend/` (React) | ✅ 85% | CesiumJS 직접 사용 + 에너지 색상 + 상세 패널 + ErrorBoundary |
+| `frontend/` (VWorld) | ✅ 90% | **VWorld WebGL 3D API 3.0** 텍스처 건물 + 에너지 오버레이 (`/vworld.html`) |
 
-### 구현 진행 중 (Phase 3)
+### 두 가지 프론트엔드 뷰어
 
-| 모듈 | 상태 | 설명 |
-|------|------|------|
-| `frontend/` | ⚠️ 70% | CesiumJS + OSM Buildings + 에너지 색상 + 상세 패널. 필터/주소검색 미구현 |
+| 뷰어 | 경로 | 3D 건물 | 텍스처 | 에너지 데이터 |
+|------|------|---------|--------|-------------|
+| **VWorld 뷰어** (권장) | `/vworld.html` | VWorld LoD3-4 (정부 공식) | ✅ 사진 텍스처 | ✅ 클릭→상세 패널 |
+| React 뷰어 | `/` | 자체 익스트루전 | 프로시저럴 색상 | ✅ 색상 코딩 + 패널 |
 
 ### 미착수 (Phase 4~5)
 
@@ -33,25 +36,31 @@
 | 온돌 모델링 | 바닥복사난방 (공동주택) |
 | 리트로핏 추정 | 창호/외단열 변경 효과 |
 | UHI 보정 | 도시열섬 효과 반영 |
+| 필터 UI | 에너지등급/용도/연대 필터 (백엔드 완료, 프론트 미구현) |
+| 주소 검색 | 도로명주소 API 연동 (키 확보, 프론트 미연동) |
 
 ### 기술 스택 확정
 
 | 영역 | 기술 |
 |------|------|
-| 백엔드 | FastAPI + SQLAlchemy + PostGIS + Celery + Redis |
-| 프론트엔드 | React 19 + CesiumJS (직접, Resium 미사용) + Zustand + TailwindCSS + Recharts |
-| 3D | Cesium OSM Buildings (Ion 96188) + CustomShader (창문/지붕) |
+| 백엔드 | FastAPI + SQLAlchemy + PostGIS + Celery + Redis + GZip |
+| 프론트엔드 (React) | React 19 + CesiumJS (직접) + Zustand + TailwindCSS + Recharts |
+| 프론트엔드 (VWorld) | VWorld WebGL 3D API 3.0 (Cesium 내장, `ws3d.viewer`) |
+| 3D 건물 | VWorld LoD3-4 텍스처 (권장) / 자체 익스트루전 (대안) |
 | 빌드 | Vite 6 + TypeScript |
-| 데이터 | VWorld API (footprint) + data.go.kr HTTPS (건축물대장) |
+| 데이터 | VWorld API (footprint) + data.go.kr HTTPS (건축물대장 총괄표제부+표제부) |
 
 ### 주요 기술 결정 사항
 
-1. **Google Photorealistic 3D Tiles**: 한국 미지원 확인 (2026-03). Cesium OSM Buildings로 대체
-2. **VWorld 3D 텍스처 다운로드**: 2019년 폐쇄 (국가보안). 절차적 셰이더로 대체
-3. **PublicDataReader 라이브러리**: HTTPS 엔드포인트 직접 호출로 대체 (http→https 문제)
-4. **React StrictMode**: Cesium Viewer lifecycle 충돌로 비활성화
-5. **서버사이드 pick**: 72K centroid 클라이언트 로딩 대신 PostGIS KNN (`<->` 연산자)
-6. **건축물대장 JOIN**: LATERAL JOIN으로 PNU당 1건 매칭 (1:N 중복 방지)
+1. **VWorld WebGL 3D API 3.0 채택**: 서울 LoD3-4 텍스처 건물 공식 지원. `ws3d.viewer`가 Cesium.Viewer이므로 Cesium API 직접 사용 가능
+2. **Google Photorealistic 3D Tiles**: 한국 미지원 확인 (2026-03)
+3. **VWorld 3D Data API (벌크 다운로드)**: 2019년 폐쇄 (국가보안). WebGL 뷰어로만 접근 가능
+4. **PublicDataReader 라이브러리**: HTTPS 엔드포인트 직접 호출로 대체 (http→https 문제)
+5. **React StrictMode**: Cesium Viewer lifecycle 충돌로 비활성화
+6. **서버사이드 pick**: PostGIS KNN (`<->` 연산자, 3ms 응답) — 72K centroid 클라이언트 로딩 불필요
+7. **건축물대장 2단계 수집**: 총괄표제부(단지) + 표제부(동별) → LATERAL JOIN으로 PNU당 최적 1건 매칭
+8. **EllipsoidTerrainProvider**: 지형 제거로 건물 높이 정확도 확보 (React 뷰어)
+9. **성능 최적화**: RequestScheduler 18, fog, GZip, AbortController, Entity eviction
 
 ## 빌드 & 실행
 

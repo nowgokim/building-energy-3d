@@ -613,6 +613,59 @@ viewer.camera.flyTo({
 
 ---
 
+## 3.8 프론트엔드 아키텍처 (2026-03 확정)
+
+### 3.8.1 VWorld WebGL 3D 뷰어 (권장, `/vworld.html`)
+
+```
+VWorld WebGL 3D API 3.0
+├── 스크립트: https://map.vworld.kr/js/webglMapInit.js.do?version=3.0&apiKey={KEY}
+├── Cesium 내장: ws3d.viewer = Cesium.Viewer (Cesium API 직접 사용 가능)
+├── 3D 건물: facility_build 레이어 (서울 LoD3-4 사진 텍스처)
+├── 지형: 5m DEM
+├── 위성사진: 25cm 정사영상
+└── 에너지 오버레이: 우리 API → 클릭 → 상세 패널
+```
+
+**주요 특징:**
+- VWorld이 좌표/높이/텍스처를 모두 정확히 처리 (좌표 불일치 문제 없음)
+- `ws3d.viewer`가 Cesium.Viewer이므로 Entity, DataSource, Camera API 모두 사용 가능
+- 별도 Cesium JS 파일 불필요 (VWorld 스크립트에 포함)
+- 도메인 제한: API 키 발급 시 등록한 도메인에서만 작동
+
+**성능 최적화:**
+- `RequestScheduler.requestsByServer["xdworld.vworld.kr:443"] = 18` (동시 요청 18개)
+- `viewer.scene.fog.enabled = true` (먼 거리 타일 컬링)
+- `globe.maximumScreenSpaceError = 4` (원거리 디테일 축소)
+
+### 3.8.2 React CesiumJS 뷰어 (대안, `/`)
+
+```
+React 19 + CesiumJS (직접) + Vite 6
+├── 베이스맵: Bing Maps 위성 (Cesium Ion 기본)
+├── 3D 건물: 자체 데이터 (72,930건) Entity 익스트루전
+├── 에너지 색상: 소비량 기반 그라데이션 (green→orange)
+├── 상세 패널: Zustand 상태 관리 + Recharts 에너지 분해 차트
+├── 검색: 디바운스 건물명 검색
+└── ErrorBoundary + WebGL context loss 핸들링
+```
+
+**제한사항:**
+- 건물 텍스처 없음 (프로시저럴 색상만)
+- Entity API 성능 한계 (5000건 이상 시 프레임 저하)
+- 좌표/높이 불일치 가능 (VWorld 데이터 vs Bing 위성)
+
+### 3.8.3 API 엔드포인트 성능 (2026-03 측정)
+
+| 엔드포인트 | 응답 시간 | 비고 |
+|-----------|----------|------|
+| `/buildings/pick` | **3ms** | PostGIS KNN (`<->` 연산자) |
+| `/buildings/stats` | **46ms** | 집계 쿼리 |
+| `/buildings/{pnu}` | ~10ms | 단건 조회 |
+| `/buildings/` (bbox) | ~1.9s | GeoJSON 5000건 (React 뷰어용) |
+
+---
+
 ## 4. 배포 아키텍처
 
 ### 4.1 MVP 배포 (단일 서버)
