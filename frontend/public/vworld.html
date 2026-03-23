@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>마포구 3D 건물 에너지 지도</title>
+  <script src="https://map.vworld.kr/js/webglMapInit.js.do?version=3.0&apiKey=7313CF5F-7479-3683-A360-270B72C03B88&domain=jukim.github.io"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Pretendard', -apple-system, sans-serif; overflow: hidden; }
+    #vmap { width: 100vw; height: 100vh; }
+
+    #search-bar {
+      position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 100;
+      width: 360px;
+    }
+    #search-bar input {
+      width: 100%; padding: 10px 16px; border-radius: 8px; border: none;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.15); font-size: 14px; outline: none;
+      background: rgba(255,255,255,0.95);
+    }
+    #search-results {
+      margin-top: 4px; background: rgba(255,255,255,0.95); border-radius: 8px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.15); max-height: 240px; overflow-y: auto;
+      display: none;
+    }
+    #search-results .item {
+      padding: 8px 16px; cursor: pointer; font-size: 13px; border-bottom: 1px solid #eee;
+    }
+    #search-results .item:hover { background: #f0f7ff; }
+
+    #panel {
+      position: absolute; top: 0; right: 0; width: 320px; height: 100%; z-index: 100;
+      background: rgba(255,255,255,0.96); box-shadow: -2px 0 12px rgba(0,0,0,0.1);
+      overflow-y: auto; display: none; padding: 16px;
+    }
+    #panel .close { float: right; cursor: pointer; font-size: 20px; color: #999; }
+    #panel h2 { font-size: 16px; margin: 0 0 12px; }
+    #panel .metrics { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 16px; }
+    #panel .metric { text-align: center; background: #f5f5f5; border-radius: 8px; padding: 8px; }
+    #panel .metric .value { font-size: 18px; font-weight: bold; }
+    #panel .metric .label { font-size: 10px; color: #888; }
+    #panel .info { font-size: 13px; }
+    #panel .info dt { color: #888; }
+    #panel .info dd { margin: 0 0 6px; font-weight: 500; }
+
+    #stats-bar {
+      position: absolute; bottom: 12px; left: 12px; z-index: 100;
+      background: rgba(255,255,255,0.9); border-radius: 8px; padding: 8px 16px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1); font-size: 13px;
+    }
+
+    #legend {
+      position: absolute; bottom: 12px; right: 12px; z-index: 100;
+      background: rgba(255,255,255,0.9); border-radius: 8px; padding: 8px 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    #legend .title { font-size: 10px; color: #888; margin-bottom: 4px; }
+    #legend .colors { display: flex; gap: 2px; }
+    #legend .colors .c { width: 20px; height: 12px; border-radius: 2px; }
+    #legend .labels { display: flex; justify-content: space-between; font-size: 8px; color: #888; }
+
+    .loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+      z-index: 200; color: #fff; font-size: 14px; background: rgba(0,0,0,0.7);
+      padding: 12px 24px; border-radius: 8px; }
+  </style>
+</head>
+<body>
+  <div id="vmap"></div>
+  <div id="loading" class="loading">3D 지도 로딩 중...</div>
+
+  <!-- Search -->
+  <div id="search-bar">
+    <input type="text" id="search-input" placeholder="건물명 또는 주소 검색..." />
+    <div id="search-results"></div>
+  </div>
+
+  <!-- Detail Panel -->
+  <div id="panel">
+    <span class="close" onclick="closePanel()">×</span>
+    <h2 id="p-name">건물 정보</h2>
+    <div class="metrics">
+      <div class="metric"><div class="value" id="p-grade">-</div><div class="label">에너지등급</div></div>
+      <div class="metric"><div class="value" id="p-energy">-</div><div class="label">kWh/m²</div></div>
+      <div class="metric"><div class="value" id="p-area">-</div><div class="label">m² 연면적</div></div>
+    </div>
+    <dl class="info">
+      <dt>PNU</dt><dd id="p-pnu">-</dd>
+      <dt>용도</dt><dd id="p-usage">-</dd>
+      <dt>구조</dt><dd id="p-struct">-</dd>
+      <dt>층수</dt><dd id="p-floors">-</dd>
+      <dt>높이</dt><dd id="p-height">-</dd>
+      <dt>건축년도</dt><dd id="p-year">-</dd>
+    </dl>
+    <div id="p-energy-chart"></div>
+  </div>
+
+  <!-- Stats -->
+  <div id="stats-bar">
+    <span>건물 <b id="s-count">-</b></span> &nbsp;
+    <span>평균 에너지 <b id="s-energy">-</b></span>
+  </div>
+
+  <!-- Legend -->
+  <div id="legend">
+    <div class="title">에너지 소비량 (kWh/m²/yr)</div>
+    <div class="colors">
+      <div class="c" style="background:#4cb848"></div>
+      <div class="c" style="background:#8dc63f"></div>
+      <div class="c" style="background:#d4e157"></div>
+      <div class="c" style="background:#fdd835"></div>
+      <div class="c" style="background:#ffb300"></div>
+      <div class="c" style="background:#fb8c00"></div>
+    </div>
+    <div class="labels"><span>효율적</span><span>비효율적</span></div>
+  </div>
+
+  <script>
+    const API = "/api/v1";
+    let currentAbort = null;
+
+    // --- VWorld Map Init ---
+    var map = new vw.Map();
+    map.setOption({
+      mapId: "vmap",
+      initPosition: new vw.CameraPosition(
+        new vw.CoordZ(126.935, 37.555, 800),
+        new vw.Direction(30, -35, 0)
+      ),
+      logo: true,
+      navigation: true,
+    });
+    map.start();
+
+    // --- After 3D scene ready ---
+    vw.ws3dInitCallBack = function () {
+      document.getElementById("loading").style.display = "none";
+      const viewer = ws3d.viewer;
+
+      // Load stats
+      fetch(API + "/buildings/stats")
+        .then((r) => r.json())
+        .then((d) => {
+          document.getElementById("s-count").textContent = d.total_count?.toLocaleString() || "-";
+          document.getElementById("s-energy").textContent = d.avg_energy ? d.avg_energy.toFixed(0) + " kWh/m²" : "-";
+        });
+
+      // Click handler — server-side pick
+      viewer.screenSpaceEventHandler.setInputAction(function (event) {
+        if (currentAbort) currentAbort.abort();
+        const controller = new AbortController();
+        currentAbort = controller;
+
+        let cartesian = viewer.scene.pickPosition(event.position);
+        if (!cartesian) {
+          const ray = viewer.camera.getPickRay(event.position);
+          if (ray) cartesian = viewer.scene.globe.pick(ray, viewer.scene);
+        }
+        if (!cartesian) return;
+
+        const carto = Cesium.Cartographic.fromCartesian(cartesian);
+        const lng = Cesium.Math.toDegrees(carto.longitude);
+        const lat = Cesium.Math.toDegrees(carto.latitude);
+
+        fetch(API + "/buildings/pick?lng=" + lng + "&lat=" + lat, { signal: controller.signal })
+          .then((r) => r.json())
+          .then((result) => {
+            if (!result.pnu) return;
+            return fetch(API + "/buildings/" + result.pnu, { signal: controller.signal });
+          })
+          .then((r) => r && r.json())
+          .then((detail) => {
+            if (detail) showPanel(detail);
+          })
+          .catch((e) => { if (e.name !== "AbortError") console.error(e); });
+      }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+
+      console.log("VWorld 3D map ready + energy overlay active");
+    };
+
+    // --- Panel ---
+    function showPanel(detail) {
+      const p = detail.properties;
+      document.getElementById("p-name").textContent = p.building_name || "건물 정보";
+      document.getElementById("p-grade").textContent = p.energy_grade || "-";
+      document.getElementById("p-energy").textContent = p.total_energy ? Math.round(p.total_energy) : "-";
+      document.getElementById("p-area").textContent = p.total_area != null ? p.total_area.toLocaleString() : "-";
+      document.getElementById("p-pnu").textContent = p.pnu || "-";
+      document.getElementById("p-usage").textContent = p.usage_type || "-";
+      document.getElementById("p-struct").textContent = p.structure_type || "-";
+      document.getElementById("p-floors").textContent =
+        p.floors_above ? "지상 " + p.floors_above + "층 / 지하 " + (p.floors_below || 0) + "층" : "-";
+      document.getElementById("p-height").textContent = p.height ? p.height.toFixed(1) + "m" : "-";
+      document.getElementById("p-year").textContent = p.built_year || "-";
+
+      // Energy breakdown chart
+      if (p.energy) {
+        const e = p.energy;
+        const items = [
+          { name: "난방", val: e.heating, color: "#ef4444" },
+          { name: "냉방", val: e.cooling, color: "#3b82f6" },
+          { name: "급탕", val: e.hot_water, color: "#f59e0b" },
+          { name: "조명", val: e.lighting, color: "#a855f7" },
+          { name: "환기", val: e.ventilation, color: "#22c55e" },
+        ];
+        const max = Math.max(...items.map((i) => i.val || 0));
+        document.getElementById("p-energy-chart").innerHTML =
+          "<div style='margin-top:12px;font-size:11px;color:#888'>에너지 소비 분해</div>" +
+          items
+            .map(
+              (i) =>
+                '<div style="display:flex;align-items:center;gap:6px;margin:3px 0;font-size:12px">' +
+                '<span style="width:24px">' + i.name + "</span>" +
+                '<div style="flex:1;background:#eee;border-radius:3px;height:14px">' +
+                '<div style="width:' + ((i.val || 0) / max * 100) + '%;background:' + i.color + ';height:100%;border-radius:3px"></div>' +
+                "</div>" +
+                "<span>" + (i.val ? i.val.toFixed(1) : "-") + "</span></div>"
+            )
+            .join("");
+      } else {
+        document.getElementById("p-energy-chart").innerHTML = "";
+      }
+
+      document.getElementById("panel").style.display = "block";
+    }
+
+    function closePanel() {
+      document.getElementById("panel").style.display = "none";
+    }
+
+    // --- Search ---
+    let searchTimer = null;
+    document.getElementById("search-input").addEventListener("input", function (e) {
+      clearTimeout(searchTimer);
+      const q = e.target.value;
+      if (q.length < 2) {
+        document.getElementById("search-results").style.display = "none";
+        return;
+      }
+      searchTimer = setTimeout(function () {
+        fetch(API + "/search?q=" + encodeURIComponent(q))
+          .then((r) => r.json())
+          .then((data) => {
+            const el = document.getElementById("search-results");
+            if (!data.results.length) { el.style.display = "none"; return; }
+            el.innerHTML = data.results
+              .map(
+                (r) =>
+                  '<div class="item" onclick="selectSearch(\'' + r.pnu + "'," + r.lng + "," + r.lat + ')">' +
+                  "<b>" + (r.building_name || r.pnu) + "</b> <span style='color:#888;font-size:11px'>" +
+                  (r.usage_type || "") + "</span></div>"
+              )
+              .join("");
+            el.style.display = "block";
+          });
+      }, 300);
+    });
+
+    function selectSearch(pnu, lng, lat) {
+      document.getElementById("search-results").style.display = "none";
+      if (lng && lat) {
+        ws3d.viewer.camera.flyTo({
+          destination: Cesium.Cartesian3.fromDegrees(lng, lat, 300),
+          orientation: { heading: Cesium.Math.toRadians(0), pitch: Cesium.Math.toRadians(-45), roll: 0 },
+          duration: 1.5,
+        });
+      }
+      fetch(API + "/buildings/" + pnu)
+        .then((r) => r.json())
+        .then((detail) => showPanel(detail))
+        .catch(console.error);
+    }
+  </script>
+</body>
+</html>
