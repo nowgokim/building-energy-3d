@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>마포구 3D 건물 에너지 지도</title>
+  <script src="https://map.vworld.kr/js/webglMapInit.js.do?version=3.0&apiKey=7313CF5F-7479-3683-A360-270B72C03B88&domain=jukim.github.io"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Pretendard', -apple-system, sans-serif; overflow: hidden; }
+    #vmap { width: 100vw; height: 100vh; }
+
+    #search-bar {
+      position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 100;
+      width: 360px;
+    }
+    #search-bar input {
+      width: 100%; padding: 10px 16px; border-radius: 8px; border: none;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.15); font-size: 14px; outline: none;
+      background: rgba(255,255,255,0.95);
+    }
+    #search-results {
+      margin-top: 4px; background: rgba(255,255,255,0.95); border-radius: 8px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.15); max-height: 240px; overflow-y: auto;
+      display: none;
+    }
+    #search-results .item {
+      padding: 8px 16px; cursor: pointer; font-size: 13px; border-bottom: 1px solid #eee;
+    }
+    #search-results .item:hover { background: #f0f7ff; }
+
+    #panel {
+      position: absolute; top: 0; right: 0; width: 320px; height: 100%; z-index: 100;
+      background: rgba(255,255,255,0.96); box-shadow: -2px 0 12px rgba(0,0,0,0.1);
+      overflow-y: auto; display: none; padding: 16px;
+    }
+    #panel .close { float: right; cursor: pointer; font-size: 20px; color: #999; }
+    #panel h2 { font-size: 16px; margin: 0 0 12px; }
+    #panel .metrics { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 16px; }
+    #panel .metric { text-align: center; background: #f5f5f5; border-radius: 8px; padding: 8px; }
+    #panel .metric .value { font-size: 18px; font-weight: bold; }
+    #panel .metric .label { font-size: 10px; color: #888; }
+    #panel .info { font-size: 13px; }
+    #panel .info dt { color: #888; }
+    #panel .info dd { margin: 0 0 6px; font-weight: 500; }
+
+    #stats-bar {
+      position: absolute; bottom: 12px; left: 12px; z-index: 100;
+      background: rgba(255,255,255,0.9); border-radius: 8px; padding: 8px 16px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1); font-size: 13px;
+    }
+
+    #legend {
+      position: absolute; bottom: 12px; right: 12px; z-index: 100;
+      background: rgba(255,255,255,0.9); border-radius: 8px; padding: 8px 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    #legend .title { font-size: 10px; color: #888; margin-bottom: 4px; }
+    #legend .colors { display: flex; gap: 2px; }
+    #legend .colors .c { width: 20px; height: 12px; border-radius: 2px; }
+    #legend .labels { display: flex; justify-content: space-between; font-size: 8px; color: #888; }
+
+    .loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+      z-index: 200; color: #fff; font-size: 14px; background: rgba(0,0,0,0.7);
+      padding: 12px 24px; border-radius: 8px; }
+
+    #texture-panel {
+      position: absolute; top: 60px; left: 12px; z-index: 100;
+      background: rgba(255,255,255,0.95); border-radius: 8px; padding: 12px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.15); width: 280px; display: none;
+      font-size: 13px;
+    }
+    #texture-panel h3 { margin: 0 0 8px; font-size: 14px; }
+    #texture-panel label { display: block; margin: 6px 0 2px; color: #666; font-size: 11px; }
+    #texture-panel input, #texture-panel select {
+      width: 100%; padding: 6px 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 12px;
+    }
+    #texture-panel .btn {
+      margin-top: 8px; padding: 6px 12px; border: none; border-radius: 4px;
+      cursor: pointer; font-size: 12px;
+    }
+    #texture-panel .btn-apply { background: #4a9eff; color: #fff; }
+    #texture-panel .btn-remove { background: #ff5252; color: #fff; margin-left: 4px; }
+    #texture-panel .btn-toggle { background: #666; color: #fff; }
+    #texture-btn {
+      position: absolute; top: 60px; left: 12px; z-index: 100;
+      background: rgba(255,255,255,0.9); border: none; border-radius: 8px;
+      padding: 8px 14px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      cursor: pointer; font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+  <div id="vmap"></div>
+  <div id="loading" class="loading">3D 지도 로딩 중...</div>
+
+  <!-- Texture Overlay Button -->
+  <button id="texture-btn" onclick="toggleTexturePanel()">🎨 텍스처</button>
+
+  <!-- Texture Overlay Panel -->
+  <div id="texture-panel">
+    <h3>🎨 건물 텍스처 오버레이</h3>
+    <label>적용 범위</label>
+    <select id="tex-scope">
+      <option value="building">특정 건물 (PNU)</option>
+      <option value="dong">특정 동 (아파트 동)</option>
+      <option value="area">영역 내 전체 건물</option>
+    </select>
+
+    <label>PNU 코드 (건물 클릭하면 자동 입력)</label>
+    <input type="text" id="tex-pnu" placeholder="1144010400101690001" value="1144010400101690001" />
+
+    <label>동/호수 (선택)</label>
+    <input type="text" id="tex-dong" placeholder="예: 101동, 3층" />
+
+    <label>이미지 URL 또는 파일</label>
+    <input type="text" id="tex-url" placeholder="/uploads/test_texture.jpg" value="/uploads/test_texture.jpg" />
+    <input type="file" id="tex-file" accept="image/*" style="margin-top:4px" />
+
+    <label>투명도</label>
+    <input type="range" id="tex-alpha" min="0.1" max="1.0" step="0.1" value="0.9" />
+
+    <label>적용 면</label>
+    <select id="tex-face">
+      <option value="all">전체 (4면+지붕)</option>
+      <option value="front">전면만</option>
+      <option value="walls">벽면만 (지붕 제외)</option>
+    </select>
+
+    <div style="margin-top:10px">
+      <button class="btn btn-apply" onclick="applyTexture()">적용</button>
+      <button class="btn btn-remove" onclick="removeTexture()">제거</button>
+    </div>
+    <div id="tex-status" style="margin-top:6px; font-size:11px; color:#888;"></div>
+  </div>
+
+  <!-- Search -->
+  <div id="search-bar">
+    <input type="text" id="search-input" placeholder="건물명 또는 주소 검색..." />
+    <div id="search-results"></div>
+  </div>
+
+  <!-- Detail Panel -->
+  <div id="panel">
+    <span class="close" onclick="closePanel()">×</span>
+    <h2 id="p-name">건물 정보</h2>
+    <div class="metrics">
+      <div class="metric"><div class="value" id="p-grade">-</div><div class="label">에너지등급</div></div>
+      <div class="metric"><div class="value" id="p-energy">-</div><div class="label">kWh/m²</div></div>
+      <div class="metric"><div class="value" id="p-area">-</div><div class="label">m² 연면적</div></div>
+    </div>
+    <dl class="info">
+      <dt>PNU</dt><dd id="p-pnu">-</dd>
+      <dt>용도</dt><dd id="p-usage">-</dd>
+      <dt>구조</dt><dd id="p-struct">-</dd>
+      <dt>층수</dt><dd id="p-floors">-</dd>
+      <dt>높이</dt><dd id="p-height">-</dd>
+      <dt>건축년도</dt><dd id="p-year">-</dd>
+    </dl>
+    <div id="p-energy-chart"></div>
+  </div>
+
+  <!-- Stats -->
+  <div id="stats-bar">
+    <span>건물 <b id="s-count">-</b></span> &nbsp;
+    <span>평균 에너지 <b id="s-energy">-</b></span>
+  </div>
+
+  <!-- Legend -->
+  <div id="legend">
+    <div class="title">에너지 소비량 (kWh/m²/yr)</div>
+    <div class="colors">
+      <div class="c" style="background:#4cb848"></div>
+      <div class="c" style="background:#8dc63f"></div>
+      <div class="c" style="background:#d4e157"></div>
+      <div class="c" style="background:#fdd835"></div>
+      <div class="c" style="background:#ffb300"></div>
+      <div class="c" style="background:#fb8c00"></div>
+    </div>
+    <div class="labels"><span>효율적</span><span>비효율적</span></div>
+  </div>
+
+  <script>
+    // GitHub Pages: API 없이 3D 지도만 동작
+    // 백엔드 배포 후 아래 URL을 변경하면 에너지 데이터 연동 가능
+    const API_HOST = "";  // 예: "https://your-api-server.com"
+    const API = API_HOST + "/api/v1";
+    let currentAbort = null;
+
+    // --- VWorld Map Init ---
+    var map = new vw.Map();
+    map.setOption({
+      mapId: "vmap",
+      initPosition: new vw.CameraPosition(
+        new vw.CoordZ(126.935, 37.555, 800),
+        new vw.Direction(30, -35, 0)
+      ),
+      logo: true,
+      navigation: true,
+    });
+    map.start();
+
+    // --- After 3D scene ready ---
+    vw.ws3dInitCallBack = function () {
+      document.getElementById("loading").style.display = "none";
+      const viewer = ws3d.viewer;
+
+      // --- 성능 + 안정화 ---
+      // 타일 동시 요청 수 증가
+      Cesium.RequestScheduler.requestsByServer["xdworld.vworld.kr:443"] = 12;
+      // 타일 캐시 유지 (건물 깜빡임 방지)
+      viewer.scene.globe.tileCacheSize = 1000;
+      // 먼 거리 fog (너무 많은 타일 로드 방지)
+      viewer.scene.fog.enabled = true;
+      viewer.scene.fog.density = 0.0002;
+      // 3D 타일 메모리 유지 (언로드 방지)
+      viewer.scene.globe.maximumScreenSpaceError = 2;
+      // 프레임 안정화
+      viewer.scene.debugShowFramesPerSecond = false;
+      viewer.scene.useDepthPicking = true;
+
+      // Load stats (API 없으면 무시)
+      if (API_HOST) {
+        fetch(API + "/buildings/stats")
+          .then((r) => r.json())
+          .then((d) => {
+            document.getElementById("s-count").textContent = d.total_count?.toLocaleString() || "-";
+            document.getElementById("s-energy").textContent = d.avg_energy ? d.avg_energy.toFixed(0) + " kWh/m²" : "-";
+          })
+          .catch(() => {});
+      }
+
+      // Click handler — server-side pick
+      viewer.screenSpaceEventHandler.setInputAction(function (event) {
+        if (currentAbort) currentAbort.abort();
+        const controller = new AbortController();
+        currentAbort = controller;
+
+        let cartesian = viewer.scene.pickPosition(event.position);
+        if (!cartesian) {
+          const ray = viewer.camera.getPickRay(event.position);
+          if (ray) cartesian = viewer.scene.globe.pick(ray, viewer.scene);
+        }
+        if (!cartesian) return;
+
+        const carto = Cesium.Cartographic.fromCartesian(cartesian);
+        const lng = Cesium.Math.toDegrees(carto.longitude);
+        const lat = Cesium.Math.toDegrees(carto.latitude);
+
+        fetch(API + "/buildings/pick?lng=" + lng + "&lat=" + lat, { signal: controller.signal })
+          .then((r) => r.json())
+          .then((result) => {
+            if (!result.pnu) return;
+            // 텍스처 패널이 열려있으면 PNU 자동 입력
+            if (document.getElementById("texture-panel").style.display === "block") {
+              document.getElementById("tex-pnu").value = result.pnu;
+              document.getElementById("tex-status").textContent = "선택: " + (result.building_name || result.pnu);
+            }
+            return fetch(API + "/buildings/" + result.pnu, { signal: controller.signal });
+          })
+          .then((r) => r && r.json())
+          .then((detail) => {
+            if (detail) showPanel(detail);
+          })
+          .catch((e) => { if (e.name !== "AbortError") console.error(e); });
+      }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+
+      console.log("VWorld 3D map ready + energy overlay active");
+    };
+
+    // --- Texture Overlay ---
+    let textureEntities = [];
+
+    function toggleTexturePanel() {
+      const panel = document.getElementById("texture-panel");
+      const btn = document.getElementById("texture-btn");
+      if (panel.style.display === "block") {
+        panel.style.display = "none";
+        btn.style.display = "block";
+      } else {
+        panel.style.display = "block";
+        btn.style.display = "none";
+      }
+    }
+
+    // File input → convert to data URL
+    document.getElementById("tex-file").addEventListener("change", function(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function(ev) {
+        document.getElementById("tex-url").value = ev.target.result;
+        document.getElementById("tex-status").textContent = "이미지 로드: " + file.name;
+      };
+      reader.readAsDataURL(file);
+    });
+
+    async function applyTexture() {
+      const pnu = document.getElementById("tex-pnu").value.trim();
+      const imageUrl = document.getElementById("tex-url").value.trim();
+      const alpha = parseFloat(document.getElementById("tex-alpha").value);
+      const scope = document.getElementById("tex-scope").value;
+      const face = document.getElementById("tex-face").value;
+
+      if (!pnu || !imageUrl) {
+        document.getElementById("tex-status").textContent = "PNU와 이미지를 입력하세요";
+        return;
+      }
+
+      document.getElementById("tex-status").textContent = "건물 정보 조회 중...";
+
+      try {
+        // Get building info from API
+        const resp = await fetch(API + "/buildings/" + pnu);
+        const detail = await resp.json();
+        const p = detail.properties;
+
+        if (!p || !p.lng || !p.lat) {
+          document.getElementById("tex-status").textContent = "건물을 찾을 수 없습니다";
+          return;
+        }
+
+        const height = p.height || 30;
+        const geom = detail.geometry;
+        const viewer = ws3d.viewer;
+
+        // Calculate building dimensions from geometry
+        let width = 30, depth = 30;
+        if (geom && geom.type === "MultiPolygon") {
+          const coords = geom.coordinates[0][0];
+          let minLng = 999, maxLng = -999, minLat = 999, maxLat = -999;
+          coords.forEach(c => {
+            minLng = Math.min(minLng, c[0]);
+            maxLng = Math.max(maxLng, c[0]);
+            minLat = Math.min(minLat, c[1]);
+            maxLat = Math.max(maxLat, c[1]);
+          });
+          width = (maxLng - minLng) * 88000;  // meters
+          depth = (maxLat - minLat) * 111000;
+        }
+
+        // Remove existing texture overlay for this PNU
+        removeTextureByPnu(pnu);
+
+        // Use actual building footprint polygon
+        if (geom && geom.type === "MultiPolygon") {
+          const addedEntities = [];
+
+          for (const polygon of geom.coordinates) {
+            const outerRing = polygon[0];
+
+            // --- 벽면: 각 면을 개별 WallGraphics로 분리 (왜곡 방지) ---
+            for (let i = 0; i < outerRing.length - 1; i++) {
+              const p1 = outerRing[i];
+              const p2 = outerRing[i + 1];
+
+              // 이 면의 실제 폭 (미터)
+              const faceWidth = Math.sqrt(
+                Math.pow((p2[0] - p1[0]) * 88000, 2) +
+                Math.pow((p2[1] - p1[1]) * 111000, 2)
+              );
+
+              // 이미지 반복 — 면 비율에 맞게
+              const repeatX = Math.max(1, Math.round(faceWidth / height));
+
+              const wallEntity = viewer.entities.add({
+                name: "texture_wall_" + pnu + "_" + i,
+                wall: {
+                  positions: Cesium.Cartesian3.fromDegreesArray([p1[0], p1[1], p2[0], p2[1]]),
+                  minimumHeights: [0, 0],
+                  maximumHeights: [height, height],
+                  material: new Cesium.ImageMaterialProperty({
+                    image: imageUrl,
+                    repeat: new Cesium.Cartesian2(repeatX, 1),
+                    transparent: alpha < 1.0,
+                    color: Cesium.Color.WHITE.withAlpha(alpha),
+                  }),
+                },
+                properties: { pnu: pnu, type: "texture_overlay" },
+              });
+              addedEntities.push(wallEntity);
+            }
+
+            // --- 지붕: PolygonGraphics (상단 면) ---
+            const roofPositions = Cesium.Cartesian3.fromDegreesArray(
+              outerRing.flatMap(c => [c[0], c[1]])
+            );
+            const holes = polygon.slice(1).map(ring =>
+              new Cesium.PolygonHierarchy(
+                Cesium.Cartesian3.fromDegreesArray(ring.flatMap(c => [c[0], c[1]]))
+              )
+            );
+
+            const roofEntity = viewer.entities.add({
+              name: "texture_roof_" + pnu,
+              polygon: {
+                hierarchy: new Cesium.PolygonHierarchy(roofPositions, holes),
+                height: height,
+                material: Cesium.Color.fromAlpha(Cesium.Color.DARKGRAY, alpha * 0.8),
+                outline: false,
+              },
+              properties: { pnu: pnu, type: "texture_overlay" },
+            });
+            addedEntities.push(roofEntity);
+          }
+
+          textureEntities.push({ pnu: pnu, entities: addedEntities });
+        }
+
+        // 카메라 위치 유지 (이동하지 않음)
+
+        document.getElementById("tex-status").textContent =
+          "✅ 적용 완료: " + (p.building_name || pnu) + " (" + width.toFixed(0) + "m × " + depth.toFixed(0) + "m × " + height + "m)";
+
+      } catch (e) {
+        document.getElementById("tex-status").textContent = "❌ 오류: " + e.message;
+      }
+    }
+
+    function removeTextureByPnu(pnu) {
+      const viewer = ws3d.viewer;
+      textureEntities = textureEntities.filter(t => {
+        if (t.pnu === pnu) {
+          (t.entities || [t.entity]).forEach(e => viewer.entities.remove(e));
+          return false;
+        }
+        return true;
+      });
+    }
+
+    function removeTexture() {
+      const pnu = document.getElementById("tex-pnu").value.trim();
+      if (pnu) {
+        removeTextureByPnu(pnu);
+        document.getElementById("tex-status").textContent = "텍스처 제거 완료";
+      } else {
+        const viewer = ws3d.viewer;
+        textureEntities.forEach(t => {
+          (t.entities || [t.entity]).forEach(e => viewer.entities.remove(e));
+        });
+        textureEntities = [];
+        document.getElementById("tex-status").textContent = "모든 텍스처 제거 완료";
+      }
+    }
+
+    // --- Panel ---
+    function showPanel(detail) {
+      const p = detail.properties;
+      document.getElementById("p-name").textContent = p.building_name || "건물 정보";
+      document.getElementById("p-grade").textContent = p.energy_grade || "-";
+      document.getElementById("p-energy").textContent = p.total_energy ? Math.round(p.total_energy) : "-";
+      document.getElementById("p-area").textContent = p.total_area != null ? p.total_area.toLocaleString() : "-";
+      document.getElementById("p-pnu").textContent = p.pnu || "-";
+      document.getElementById("p-usage").textContent = p.usage_type || "-";
+      document.getElementById("p-struct").textContent = p.structure_type || "-";
+      document.getElementById("p-floors").textContent =
+        p.floors_above ? "지상 " + p.floors_above + "층 / 지하 " + (p.floors_below || 0) + "층" : "-";
+      document.getElementById("p-height").textContent = p.height ? p.height.toFixed(1) + "m" : "-";
+      document.getElementById("p-year").textContent = p.built_year || "-";
+
+      // Energy breakdown chart
+      if (p.energy) {
+        const e = p.energy;
+        const items = [
+          { name: "난방", val: e.heating, color: "#ef4444" },
+          { name: "냉방", val: e.cooling, color: "#3b82f6" },
+          { name: "급탕", val: e.hot_water, color: "#f59e0b" },
+          { name: "조명", val: e.lighting, color: "#a855f7" },
+          { name: "환기", val: e.ventilation, color: "#22c55e" },
+        ];
+        const max = Math.max(...items.map((i) => i.val || 0));
+        document.getElementById("p-energy-chart").innerHTML =
+          "<div style='margin-top:12px;font-size:11px;color:#888'>에너지 소비 분해</div>" +
+          items
+            .map(
+              (i) =>
+                '<div style="display:flex;align-items:center;gap:6px;margin:3px 0;font-size:12px">' +
+                '<span style="width:24px">' + i.name + "</span>" +
+                '<div style="flex:1;background:#eee;border-radius:3px;height:14px">' +
+                '<div style="width:' + ((i.val || 0) / max * 100) + '%;background:' + i.color + ';height:100%;border-radius:3px"></div>' +
+                "</div>" +
+                "<span>" + (i.val ? i.val.toFixed(1) : "-") + "</span></div>"
+            )
+            .join("");
+      } else {
+        document.getElementById("p-energy-chart").innerHTML = "";
+      }
+
+      document.getElementById("panel").style.display = "block";
+    }
+
+    function closePanel() {
+      document.getElementById("panel").style.display = "none";
+    }
+
+    // --- Search ---
+    let searchTimer = null;
+    document.getElementById("search-input").addEventListener("input", function (e) {
+      clearTimeout(searchTimer);
+      const q = e.target.value;
+      if (q.length < 2) {
+        document.getElementById("search-results").style.display = "none";
+        return;
+      }
+      searchTimer = setTimeout(function () {
+        fetch(API + "/search?q=" + encodeURIComponent(q))
+          .then((r) => r.json())
+          .then((data) => {
+            const el = document.getElementById("search-results");
+            if (!data.results.length) { el.style.display = "none"; return; }
+            el.innerHTML = data.results
+              .map(
+                (r) =>
+                  '<div class="item" onclick="selectSearch(\'' + r.pnu + "'," + r.lng + "," + r.lat + ')">' +
+                  "<b>" + (r.building_name || r.pnu) + "</b> <span style='color:#888;font-size:11px'>" +
+                  (r.usage_type || "") + "</span></div>"
+              )
+              .join("");
+            el.style.display = "block";
+          });
+      }, 300);
+    });
+
+    function selectSearch(pnu, lng, lat) {
+      document.getElementById("search-results").style.display = "none";
+      if (lng && lat) {
+        ws3d.viewer.camera.flyTo({
+          destination: Cesium.Cartesian3.fromDegrees(lng, lat, 300),
+          orientation: { heading: Cesium.Math.toRadians(0), pitch: Cesium.Math.toRadians(-45), roll: 0 },
+          duration: 1.5,
+        });
+      }
+      fetch(API + "/buildings/" + pnu)
+        .then((r) => r.json())
+        .then((detail) => showPanel(detail))
+        .catch(console.error);
+    }
+  </script>
+</body>
+</html>
