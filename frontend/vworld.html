@@ -245,6 +245,11 @@
           .then((r) => r.json())
           .then((result) => {
             if (!result.pnu) return;
+            // 텍스처 패널이 열려있으면 PNU 자동 입력
+            if (document.getElementById("texture-panel").style.display === "block") {
+              document.getElementById("tex-pnu").value = result.pnu;
+              document.getElementById("tex-status").textContent = "선택: " + (result.building_name || result.pnu);
+            }
             return fetch(API + "/buildings/" + result.pnu, { signal: controller.signal });
           })
           .then((r) => r && r.json())
@@ -253,26 +258,6 @@
           })
           .catch((e) => { if (e.name !== "AbortError") console.error(e); });
       }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
-
-      // Click → auto-fill PNU for texture panel
-      viewer.screenSpaceEventHandler.setInputAction(function (event) {
-        let cartesian = viewer.scene.pickPosition(event.position);
-        if (!cartesian) return;
-        const carto = Cesium.Cartographic.fromCartesian(cartesian);
-        const lng = Cesium.Math.toDegrees(carto.longitude);
-        const lat = Cesium.Math.toDegrees(carto.latitude);
-        // Auto-fill PNU in texture panel if open
-        if (document.getElementById("texture-panel").style.display === "block") {
-          fetch(API + "/buildings/pick?lng=" + lng + "&lat=" + lat)
-            .then(r => r.json())
-            .then(d => {
-              if (d.pnu) {
-                document.getElementById("tex-pnu").value = d.pnu;
-                document.getElementById("tex-status").textContent = "선택: " + (d.building_name || d.pnu);
-              }
-            });
-        }
-      }, Cesium.ScreenSpaceEventType.RIGHT_CLICK);
 
       console.log("VWorld 3D map ready + energy overlay active");
     };
@@ -351,8 +336,6 @@
         // Remove existing texture overlay for this PNU
         removeTextureByPnu(pnu);
 
-        const viewer = ws3d.viewer;
-
         // Use actual building footprint polygon
         if (geom && geom.type === "MultiPolygon") {
           const addedEntities = [];
@@ -376,6 +359,8 @@
                 hierarchy: new Cesium.PolygonHierarchy(positions, holes),
                 height: 0,
                 extrudedHeight: height,
+                heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+                extrudedHeightReference: Cesium.HeightReference.RELATIVE_TO_GROUND,
                 material: new Cesium.ImageMaterialProperty({
                   image: imageUrl,
                   repeat: new Cesium.Cartesian2(
@@ -386,7 +371,7 @@
                   color: Cesium.Color.WHITE.withAlpha(alpha),
                 }),
                 outline: true,
-                outlineColor: Cesium.Color.WHITE.withAlpha(0.5),
+                outlineColor: Cesium.Color.WHITE.withAlpha(0.3),
                 outlineWidth: 1,
               },
               properties: { pnu: pnu, type: "texture_overlay" },
