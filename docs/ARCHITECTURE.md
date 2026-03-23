@@ -594,12 +594,15 @@ viewer.camera.flyTo({
 | POST | `/api/v1/filter` | 다중 조건 필터 | `energy_grades[]`, `vintage_classes[]`, `usage_types[]`, `bbox[]` | ✅ |
 | GET | `/api/v1/filter/export` | 필터 결과 CSV 다운로드 | 동일 필터 파라미터 | ✅ |
 
-#### 3.7.3 시뮬레이션 API — Phase 4 예정
+#### 3.7.3 에너지 예측 + 시뮬레이션 API — Phase 4 예정
 
 | Method | Path | 설명 | 상태 |
 |--------|------|------|------|
+| GET | `/api/v1/buildings/{pnu}/energy/daily` | 일단위 에너지 예측 (`?date=&model=`) | 미구현 |
+| GET | `/api/v1/buildings/{pnu}/energy/hourly` | 시간단위 에너지 예측 (`?date=&model=`) | 미구현 |
+| GET | `/api/v1/models` | 사용 가능한 예측 모델 목록 | 미구현 |
 | GET | `/api/v1/archetypes` | 원형 목록 | 미구현 |
-| POST | `/api/v1/simulate` | 시뮬레이션 실행 (async) | 미구현 |
+| POST | `/api/v1/simulate` | EnergyPlus 시뮬레이션 실행 (async) | 미구현 |
 | GET | `/api/v1/simulate/{task_id}` | 시뮬레이션 상태 | 미구현 |
 
 #### 3.7.4 관리 API — Phase 5 예정
@@ -613,9 +616,104 @@ viewer.camera.flyTo({
 
 ---
 
-## 3.8 프론트엔드 아키텍처 (2026-03 확정)
+## 3.8 에너지 예측 모델 아키텍처 (Pluggable Model Architecture)
 
-### 3.8.1 VWorld WebGL 3D 뷰어 (권장, `/vworld.html`)
+### 설계 원칙
+
+**모델 교체 가능성 (Pluggability)**: 모든 예측 모델은 동일한 추상 인터페이스(`EnergyPredictor`)를 구현하며, API 파라미터(`?model=`)로 런타임에 모델을 선택할 수 있다. 기본 모델을 사용자가 개발한 커스텀 모델로 언제든 교체 가능하다.
+
+```
+┌─────────────────────────────────────────────────┐
+│            EnergyPredictor (ABC)                 │
+│  predict_daily(building, date, weather) → dict   │
+│  predict_hourly(building, date, weather) → list  │
+│  model_info() → dict                            │
+└──────────────┬──────────────────┬───────────────┘
+               │                  │
+    ┌──────────┴───┐    ┌────────┴────────┐
+    │ Built-in     │    │ User Custom     │
+    ├──────────────┤    ├─────────────────┤
+    │ XGBoost      │    │ MyCustomModel   │
+    │ LSTM         │    │ TransformerModel│
+    │ Archetype    │    │ PhysicsModel    │
+    └──────────────┘    └─────────────────┘
+               │                  │
+    ┌──────────┴──────────────────┴───────┐
+    │          ModelRegistry               │
+    │  register(name, predictor_class)     │
+    │  get(name) → EnergyPredictor         │
+    │  list() → [model_info, ...]          │
+    └──────────────────────────────────────┘
+```
+
+### 추상 인터페이스
+
+```python
+# src/simulation/predictor_base.py
+class EnergyPredictor(ABC):
+    @abstractmethod
+    def predict_daily(self, building: dict, date: str, weather: dict) -> dict:
+        """일단위 예측 → {heating, cooling, hot_water, lighting, ventilation, total} (kWh/m²/day)"""
+
+    @abstractmethod
+    def predict_hourly(self, building: dict, date: str, weather: dict) -> list[dict]:
+        """시간단위 예측 → [{hour, heating, cooling, ..., total}, ...] × 24 (kWh/m²/hr)"""
+
+    @abstractmethod
+    def model_info(self) -> dict:
+        """모델 메타 → {id, name, version, type, algorithm, training_data, accuracy_metrics}"""
+```
+
+### 내장 모델
+
+| 모델 ID | 예측 단위 | 알고리즘 | 학습 데이터 |
+|---------|----------|---------|-----------|
+| `archetype-annual-v1` | 연간 | 룩업 테이블 | 한국 건물 벤치마크 (현재 구현) |
+| `xgboost-daily-v1` | 일단위 | XGBoost | EnergyPlus 시뮬레이션 (Phase 4) |
+| `lstm-hourly-v1` | 시간단위 | LSTM | EnergyPlus hourly output (Phase 4) |
+
+### 커스텀 모델 등록
+
+```python
+# src/simulation/custom/my_model.py
+class MyPhysicsModel(EnergyPredictor):
+    def predict_daily(self, building, date, weather):
+        return {"heating": ..., "total": ...}  # 사용자 로직
+
+# 등록
+ModelRegistry.register("physics-custom-v1", MyPhysicsModel)
+```
+
+### API 모델 선택
+
+```
+GET /buildings/{pnu}/energy/daily?date=2026-03-23&model=xgboost-daily-v1
+GET /buildings/{pnu}/energy/hourly?date=2026-03-23&model=lstm-hourly-v1
+GET /models → [{id, name, version, type, algorithm}, ...]
+```
+
+### 파일 구조
+
+```
+src/simulation/
+├── predictor_base.py       # EnergyPredictor ABC
+├── model_registry.py       # ModelRegistry
+├── archetypes.py           # archetype-annual-v1 (현재)
+├── daily_predictor.py      # xgboost-daily-v1 (Phase 4)
+├── hourly_predictor.py     # lstm-hourly-v1 (Phase 4)
+├── weather.py              # 기상청 API
+├── custom/                 # 사용자 커스텀 모델
+│   └── README.md
+└── ml_models/              # 학습된 모델 파일
+    ├── daily_xgboost.joblib
+    └── hourly_lstm.pt
+```
+
+---
+
+## 3.9 프론트엔드 아키텍처 (2026-03 확정)
+
+### 3.9.1 VWorld WebGL 3D 뷰어 (권장, `/vworld.html`)
 
 ```
 VWorld WebGL 3D API 3.0
@@ -638,7 +736,7 @@ VWorld WebGL 3D API 3.0
 - `viewer.scene.fog.enabled = true` (먼 거리 타일 컬링)
 - `globe.maximumScreenSpaceError = 4` (원거리 디테일 축소)
 
-### 3.8.2 React CesiumJS 뷰어 (대안, `/`)
+### 3.9.2 React CesiumJS 뷰어 (대안, `/`)
 
 ```
 React 19 + CesiumJS (직접) + Vite 6
@@ -655,7 +753,7 @@ React 19 + CesiumJS (직접) + Vite 6
 - Entity API 성능 한계 (5000건 이상 시 프레임 저하)
 - 좌표/높이 불일치 가능 (VWorld 데이터 vs Bing 위성)
 
-### 3.8.3 데이터 규모 (2026-03-23 기준)
+### 3.9.3 데이터 규모 (2026-03-23 기준)
 
 | 테이블 | 건수 | 범위 |
 |--------|------|------|
@@ -665,7 +763,7 @@ React 19 + CesiumJS (직접) + Vite 6
 | `building_ledger` | **22,191** | 마포구 (총괄표제부 + 표제부) |
 | `building_centroids` | **766,380** | Point GiST KNN 전용 |
 
-### 3.8.4 API 엔드포인트 성능 (766K건 기준)
+### 3.9.4 API 엔드포인트 성능 (766K건 기준)
 
 | 엔드포인트 | DB 쿼리 시간 | HTTP 응답 시간 | 비고 |
 |-----------|-------------|---------------|------|

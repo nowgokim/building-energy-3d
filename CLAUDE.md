@@ -31,8 +31,10 @@
 
 | 모듈 | 설명 |
 |------|------|
-| EnergyPlus 연동 | OpenStudio/geomeppy 시뮬레이션 |
-| ML 대리모델 | XGBoost 학습 |
+| EnergyPlus 연동 | OpenStudio/geomeppy 시뮬레이션 (40 archetype × 8760시간) |
+| 에너지 예측 모델 | Pluggable Architecture — EnergyPredictor ABC, ModelRegistry |
+| 일단위 예측 | XGBoost (기본) → 사용자 커스텀 모델 교체 가능 |
+| 시간단위 예측 | LSTM (기본) → 사용자 커스텀 모델 교체 가능 |
 | 온돌 모델링 | 바닥복사난방 (공동주택) |
 | 리트로핏 추정 | 창호/외단열 변경 효과 |
 | UHI 보정 | 도시열섬 효과 반영 |
