@@ -27,11 +27,9 @@ def pick_building(
 ) -> dict:
     """Find the nearest building to a click position using PostGIS KNN."""
     sql = text("""
-        SELECT pnu, building_name,
-               ST_Distance(geom, ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)) AS dist
-        FROM buildings_enriched
-        WHERE ST_DWithin(geom, ST_SetSRID(ST_MakePoint(:lng, :lat), 4326), 0.001)
-        ORDER BY geom <-> ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)
+        SELECT pnu, building_name
+        FROM building_centroids
+        ORDER BY centroid <-> ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)
         LIMIT 1
     """)
     row = db.execute(sql, {"lng": lng, "lat": lat}).fetchone()
