@@ -455,9 +455,13 @@ src/
 - [x] 성능 최적화: RequestScheduler 18, fog, GZip, AbortController, Entity eviction (8K cap)
 - [x] 건축물대장 표제부 수집 (21,401건) → 동별 구조/준공일/층수 정확도 향상
 - [x] LATERAL JOIN — PNU당 최적 1건 매칭 (1:N 중복 제거, 75K→73K행)
+- [x] **서울 전역 확장** — VWorld 766,386건 footprint + 에너지 추정 766,380건
+- [x] building_centroids 테이블 — Point GiST KNN pick 0.07ms (766K건)
+- [x] VWorld 타일 안정화 — tileCacheSize=1000, fog, 동시 요청 최적화
 - [ ] **도로명주소 검색** (행안부 API 연동) — 키 확보, 프론트엔드 미연동
 - [ ] 기본 필터 (에너지등급, 건축년도, 용도) — 백엔드 완료, 프론트엔드 미구현
-- **마일스톤**: ✅ 마포구 3D 에너지 지도 VWorld 텍스처 건물 라이브 데모 완료
+- [ ] 서울 전역 건축물대장 수집 — 현재 마포구만 (운영계정 필요)
+- **마일스톤**: ✅ **서울 전역** 3D 에너지 지도 VWorld 텍스처 건물 라이브 데모 완료
 
 ### Phase 4: 에너지 시뮬레이션 연동 (5주) — 미착수
 - [x] 건물 원형 분류 체계 — 40종 정의 (5용도 × 4연대 × 2~3구조)

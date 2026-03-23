@@ -2,7 +2,7 @@
 
 ## 프로젝트 현재 상태
 
-**단계: Phase 3 (웹 뷰어 MVP) 완료** — 2026-03-23 기준
+**단계: Phase 3 (웹 뷰어 MVP) 완료, 서울 전역 확장** — 2026-03-23 기준
 
 ### 구현 완료 (Phase 0~3)
 
@@ -10,7 +10,7 @@
 |------|------|------|
 | `docs/` | ✅ 100% | PRD v1.2, Architecture v1.2, RFC 문서 |
 | `docker-compose.yml` | ✅ 100% | PostGIS(5434), Redis(6379), API(8000), Worker |
-| `src/data_ingestion/` | ✅ 95% | VWorld LT_C_SPBD 72,931건, 건축물대장 총괄표제부 790건 + 표제부 21,401건 |
+| `src/data_ingestion/` | ✅ 95% | VWorld LT_C_SPBD **766,386건** (서울 전역), 건축물대장 총괄표제부 790건 + 표제부 21,401건 (마포구) |
 | `src/geometry/` | ✅ 100% | PNU 생성/파싱, 좌표 변환 (EPSG:5174→4326) |
 | `src/simulation/` | ⚠️ 30% | archetype 40종 + 에너지 추정. EnergyPlus/ML 미연동 |
 | `src/tile_generation/` | ✅ 80% | trimesh GLB 생성 |
@@ -18,7 +18,7 @@
 | `db/` | ✅ 100% | init.sql + views.sql LATERAL JOIN (PNU 1:1 매칭) |
 | `tests/unit/` | ✅ 21건 | PNU, 열화계수, 아키타입, 타일 색상 |
 | `frontend/` (React) | ✅ 85% | CesiumJS 직접 사용 + 에너지 색상 + 상세 패널 + ErrorBoundary |
-| `frontend/` (VWorld) | ✅ 90% | **VWorld WebGL 3D API 3.0** 텍스처 건물 + 에너지 오버레이 (`/vworld.html`) |
+| `frontend/` (VWorld) | ✅ 90% | **VWorld WebGL 3D API 3.0** 텍스처 건물 + 에너지 오버레이 (`/vworld.html`), 서울 전역 766K건 |
 
 ### 두 가지 프론트엔드 뷰어
 
@@ -48,7 +48,8 @@
 | 프론트엔드 (VWorld) | VWorld WebGL 3D API 3.0 (Cesium 내장, `ws3d.viewer`) |
 | 3D 건물 | VWorld LoD3-4 텍스처 (권장) / 자체 익스트루전 (대안) |
 | 빌드 | Vite 6 + TypeScript |
-| 데이터 | VWorld API (footprint) + data.go.kr HTTPS (건축물대장 총괄표제부+표제부) |
+| 데이터 | VWorld API (서울 전역 766K footprint) + data.go.kr HTTPS (건축물대장) |
+| DB 최적화 | building_centroids 테이블 (Point GiST KNN, 0.07ms pick) |
 
 ### 주요 기술 결정 사항
 
@@ -60,7 +61,16 @@
 6. **서버사이드 pick**: PostGIS KNN (`<->` 연산자, 3ms 응답) — 72K centroid 클라이언트 로딩 불필요
 7. **건축물대장 2단계 수집**: 총괄표제부(단지) + 표제부(동별) → LATERAL JOIN으로 PNU당 최적 1건 매칭
 8. **EllipsoidTerrainProvider**: 지형 제거로 건물 높이 정확도 확보 (React 뷰어)
-9. **성능 최적화**: RequestScheduler 18, fog, GZip, AbortController, Entity eviction
+9. **성능 최적화**: RequestScheduler, fog, GZip, AbortController, Entity eviction
+10. **서울 전역 확장**: 766,386건 footprint (자동 타일 분할, 126개 타일)
+11. **building_centroids 테이블**: Point GiST KNN으로 pick 0.07ms (MultiPolygon KNN 대비 5000x 빠름)
+
+### Git 브랜치 전략
+
+- `main`: 안정 버전, PR 통해 머지
+- `docs/*`: 문서 업데이트
+- `feat/*`: 기능 개발
+- **원상 복구**: `git revert <commit>` 또는 `git checkout main -- <file>`
 
 ## 빌드 & 실행
 

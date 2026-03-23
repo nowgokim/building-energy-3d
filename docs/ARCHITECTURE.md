@@ -655,14 +655,29 @@ React 19 + CesiumJS (직접) + Vite 6
 - Entity API 성능 한계 (5000건 이상 시 프레임 저하)
 - 좌표/높이 불일치 가능 (VWorld 데이터 vs Bing 위성)
 
-### 3.8.3 API 엔드포인트 성능 (2026-03 측정)
+### 3.8.3 데이터 규모 (2026-03-23 기준)
 
-| 엔드포인트 | 응답 시간 | 비고 |
-|-----------|----------|------|
-| `/buildings/pick` | **3ms** | PostGIS KNN (`<->` 연산자) |
-| `/buildings/stats` | **46ms** | 집계 쿼리 |
-| `/buildings/{pnu}` | ~10ms | 단건 조회 |
-| `/buildings/` (bbox) | ~1.9s | GeoJSON 5000건 (React 뷰어용) |
+| 테이블 | 건수 | 범위 |
+|--------|------|------|
+| `building_footprints` | **766,386** | 서울 전역 (25구) |
+| `buildings_enriched` (MV) | **766,380** | footprint + ledger LATERAL JOIN |
+| `energy_results` | **766,380** | archetype 기반 에너지 추정 |
+| `building_ledger` | **22,191** | 마포구 (총괄표제부 + 표제부) |
+| `building_centroids` | **766,380** | Point GiST KNN 전용 |
+
+### 3.8.4 API 엔드포인트 성능 (766K건 기준)
+
+| 엔드포인트 | DB 쿼리 시간 | HTTP 응답 시간 | 비고 |
+|-----------|-------------|---------------|------|
+| `/buildings/pick` | **0.07ms** | ~300ms | `building_centroids` Point KNN |
+| `/buildings/stats` | **46ms** | ~100ms | 집계 (GZip 적용) |
+| `/buildings/{pnu}` | ~1ms | ~50ms | 단건 PNU 조회 |
+| `/buildings/` (bbox) | ~500ms | ~2s | GeoJSON 5000건 (React 뷰어) |
+
+**성능 최적화 적용:**
+- `building_centroids`: MultiPolygon GiST KNN (300ms) → Point GiST KNN (0.07ms)
+- GZip 미들웨어: API 응답 60% 압축
+- VWorld 뷰어: tileCacheSize=1000, RequestScheduler 12, fog
 
 ---
 
