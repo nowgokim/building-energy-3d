@@ -342,42 +342,57 @@
 
           for (const polygon of geom.coordinates) {
             const outerRing = polygon[0];
-            const positions = Cesium.Cartesian3.fromDegreesArray(
+
+            // --- 벽면: WallGraphics (이미지가 정면 기준으로 매핑) ---
+            const wallPositions = Cesium.Cartesian3.fromDegreesArray(
               outerRing.flatMap(c => [c[0], c[1]])
             );
 
-            // Holes (courtyards)
+            // 벽면 높이 배열 (각 꼭짓점의 바닥/꼭대기)
+            const minHeights = outerRing.map(() => 0);
+            const maxHeights = outerRing.map(() => height);
+
+            const wallEntity = viewer.entities.add({
+              name: "texture_wall_" + pnu,
+              wall: {
+                positions: wallPositions,
+                minimumHeights: minHeights,
+                maximumHeights: maxHeights,
+                material: new Cesium.ImageMaterialProperty({
+                  image: imageUrl,
+                  repeat: new Cesium.Cartesian2(
+                    Math.max(1, Math.round(width / 15)),
+                    Math.max(1, Math.round(height / 15))
+                  ),
+                  transparent: alpha < 1.0,
+                  color: Cesium.Color.WHITE.withAlpha(alpha),
+                }),
+              },
+              properties: { pnu: pnu, type: "texture_overlay" },
+            });
+            addedEntities.push(wallEntity);
+
+            // --- 지붕: PolygonGraphics (상단 면) ---
+            const roofPositions = Cesium.Cartesian3.fromDegreesArray(
+              outerRing.flatMap(c => [c[0], c[1]])
+            );
             const holes = polygon.slice(1).map(ring =>
               new Cesium.PolygonHierarchy(
                 Cesium.Cartesian3.fromDegreesArray(ring.flatMap(c => [c[0], c[1]]))
               )
             );
 
-            const entity = viewer.entities.add({
-              name: "texture_" + pnu,
+            const roofEntity = viewer.entities.add({
+              name: "texture_roof_" + pnu,
               polygon: {
-                hierarchy: new Cesium.PolygonHierarchy(positions, holes),
-                height: 0,
-                extrudedHeight: height,
-                heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
-                extrudedHeightReference: Cesium.HeightReference.RELATIVE_TO_GROUND,
-                material: new Cesium.ImageMaterialProperty({
-                  image: imageUrl,
-                  repeat: new Cesium.Cartesian2(
-                    Math.max(1, Math.round(width / 10)),
-                    Math.max(1, Math.round(height / 10))
-                  ),
-                  transparent: alpha < 1.0,
-                  color: Cesium.Color.WHITE.withAlpha(alpha),
-                }),
-                outline: true,
-                outlineColor: Cesium.Color.WHITE.withAlpha(0.3),
-                outlineWidth: 1,
+                hierarchy: new Cesium.PolygonHierarchy(roofPositions, holes),
+                height: height,
+                material: Cesium.Color.fromAlpha(Cesium.Color.DARKGRAY, alpha * 0.8),
+                outline: false,
               },
               properties: { pnu: pnu, type: "texture_overlay" },
             });
-
-            addedEntities.push(entity);
+            addedEntities.push(roofEntity);
           }
 
           textureEntities.push({ pnu: pnu, entities: addedEntities });
