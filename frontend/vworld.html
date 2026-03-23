@@ -63,11 +63,76 @@
     .loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
       z-index: 200; color: #fff; font-size: 14px; background: rgba(0,0,0,0.7);
       padding: 12px 24px; border-radius: 8px; }
+
+    #texture-panel {
+      position: absolute; top: 60px; left: 12px; z-index: 100;
+      background: rgba(255,255,255,0.95); border-radius: 8px; padding: 12px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.15); width: 280px; display: none;
+      font-size: 13px;
+    }
+    #texture-panel h3 { margin: 0 0 8px; font-size: 14px; }
+    #texture-panel label { display: block; margin: 6px 0 2px; color: #666; font-size: 11px; }
+    #texture-panel input, #texture-panel select {
+      width: 100%; padding: 6px 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 12px;
+    }
+    #texture-panel .btn {
+      margin-top: 8px; padding: 6px 12px; border: none; border-radius: 4px;
+      cursor: pointer; font-size: 12px;
+    }
+    #texture-panel .btn-apply { background: #4a9eff; color: #fff; }
+    #texture-panel .btn-remove { background: #ff5252; color: #fff; margin-left: 4px; }
+    #texture-panel .btn-toggle { background: #666; color: #fff; }
+    #texture-btn {
+      position: absolute; top: 60px; left: 12px; z-index: 100;
+      background: rgba(255,255,255,0.9); border: none; border-radius: 8px;
+      padding: 8px 14px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      cursor: pointer; font-size: 13px;
+    }
   </style>
 </head>
 <body>
   <div id="vmap"></div>
   <div id="loading" class="loading">3D 지도 로딩 중...</div>
+
+  <!-- Texture Overlay Button -->
+  <button id="texture-btn" onclick="toggleTexturePanel()">🎨 텍스처</button>
+
+  <!-- Texture Overlay Panel -->
+  <div id="texture-panel">
+    <h3>🎨 건물 텍스처 오버레이</h3>
+    <label>적용 범위</label>
+    <select id="tex-scope">
+      <option value="building">특정 건물 (PNU)</option>
+      <option value="dong">특정 동 (아파트 동)</option>
+      <option value="area">영역 내 전체 건물</option>
+    </select>
+
+    <label>PNU 코드 (건물 클릭하면 자동 입력)</label>
+    <input type="text" id="tex-pnu" placeholder="1144010400101690001" value="1144010400101690001" />
+
+    <label>동/호수 (선택)</label>
+    <input type="text" id="tex-dong" placeholder="예: 101동, 3층" />
+
+    <label>이미지 URL 또는 파일</label>
+    <input type="text" id="tex-url" placeholder="/uploads/test_texture.jpg" value="/uploads/test_texture.jpg" />
+    <input type="file" id="tex-file" accept="image/*" style="margin-top:4px" />
+
+    <label>투명도</label>
+    <input type="range" id="tex-alpha" min="0.1" max="1.0" step="0.1" value="0.9" />
+
+    <label>적용 면</label>
+    <select id="tex-face">
+      <option value="all">전체 (4면+지붕)</option>
+      <option value="front">전면만</option>
+      <option value="walls">벽면만 (지붕 제외)</option>
+    </select>
+
+    <div style="margin-top:10px">
+      <button class="btn btn-apply" onclick="applyTexture()">적용</button>
+      <button class="btn btn-remove" onclick="removeTexture()">제거</button>
+    </div>
+    <div id="tex-status" style="margin-top:6px; font-size:11px; color:#888;"></div>
+  </div>
 
   <!-- Search -->
   <div id="search-bar">
@@ -189,8 +254,170 @@
           .catch((e) => { if (e.name !== "AbortError") console.error(e); });
       }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
 
+      // Click → auto-fill PNU for texture panel
+      viewer.screenSpaceEventHandler.setInputAction(function (event) {
+        let cartesian = viewer.scene.pickPosition(event.position);
+        if (!cartesian) return;
+        const carto = Cesium.Cartographic.fromCartesian(cartesian);
+        const lng = Cesium.Math.toDegrees(carto.longitude);
+        const lat = Cesium.Math.toDegrees(carto.latitude);
+        // Auto-fill PNU in texture panel if open
+        if (document.getElementById("texture-panel").style.display === "block") {
+          fetch(API + "/buildings/pick?lng=" + lng + "&lat=" + lat)
+            .then(r => r.json())
+            .then(d => {
+              if (d.pnu) {
+                document.getElementById("tex-pnu").value = d.pnu;
+                document.getElementById("tex-status").textContent = "선택: " + (d.building_name || d.pnu);
+              }
+            });
+        }
+      }, Cesium.ScreenSpaceEventType.RIGHT_CLICK);
+
       console.log("VWorld 3D map ready + energy overlay active");
     };
+
+    // --- Texture Overlay ---
+    let textureEntities = [];
+
+    function toggleTexturePanel() {
+      const panel = document.getElementById("texture-panel");
+      const btn = document.getElementById("texture-btn");
+      if (panel.style.display === "block") {
+        panel.style.display = "none";
+        btn.style.display = "block";
+      } else {
+        panel.style.display = "block";
+        btn.style.display = "none";
+      }
+    }
+
+    // File input → convert to data URL
+    document.getElementById("tex-file").addEventListener("change", function(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function(ev) {
+        document.getElementById("tex-url").value = ev.target.result;
+        document.getElementById("tex-status").textContent = "이미지 로드: " + file.name;
+      };
+      reader.readAsDataURL(file);
+    });
+
+    async function applyTexture() {
+      const pnu = document.getElementById("tex-pnu").value.trim();
+      const imageUrl = document.getElementById("tex-url").value.trim();
+      const alpha = parseFloat(document.getElementById("tex-alpha").value);
+      const scope = document.getElementById("tex-scope").value;
+      const face = document.getElementById("tex-face").value;
+
+      if (!pnu || !imageUrl) {
+        document.getElementById("tex-status").textContent = "PNU와 이미지를 입력하세요";
+        return;
+      }
+
+      document.getElementById("tex-status").textContent = "건물 정보 조회 중...";
+
+      try {
+        // Get building info from API
+        const resp = await fetch(API + "/buildings/" + pnu);
+        const detail = await resp.json();
+        const p = detail.properties;
+
+        if (!p || !p.lng || !p.lat) {
+          document.getElementById("tex-status").textContent = "건물을 찾을 수 없습니다";
+          return;
+        }
+
+        const height = p.height || 30;
+        const geom = detail.geometry;
+        const viewer = ws3d.viewer;
+
+        // Calculate building dimensions from geometry
+        let width = 30, depth = 30;
+        if (geom && geom.type === "MultiPolygon") {
+          const coords = geom.coordinates[0][0];
+          let minLng = 999, maxLng = -999, minLat = 999, maxLat = -999;
+          coords.forEach(c => {
+            minLng = Math.min(minLng, c[0]);
+            maxLng = Math.max(maxLng, c[0]);
+            minLat = Math.min(minLat, c[1]);
+            maxLat = Math.max(maxLat, c[1]);
+          });
+          width = (maxLng - minLng) * 88000;  // meters
+          depth = (maxLat - minLat) * 111000;
+        }
+
+        // Remove existing texture overlay for this PNU
+        removeTextureByPnu(pnu);
+
+        // Create textured box overlay
+        const centerHeight = height / 2;
+        const position = Cesium.Cartesian3.fromDegrees(p.lng, p.lat, centerHeight);
+        const heading = Cesium.Math.toRadians(0);
+        const hpr = new Cesium.HeadingPitchRoll(heading, 0, 0);
+        const orientation = Cesium.Transforms.headingPitchRollQuaternion(position, hpr);
+
+        const entity = viewer.entities.add({
+          name: "texture_" + pnu,
+          position: position,
+          orientation: orientation,
+          box: {
+            dimensions: new Cesium.Cartesian3(width, depth, height),
+            material: new Cesium.ImageMaterialProperty({
+              image: imageUrl,
+              transparent: alpha < 1.0,
+              color: Cesium.Color.WHITE.withAlpha(alpha),
+            }),
+          },
+          properties: { pnu: pnu, type: "texture_overlay" },
+        });
+
+        textureEntities.push({ pnu: pnu, entity: entity });
+
+        // Fly to building
+        viewer.camera.flyTo({
+          destination: Cesium.Cartesian3.fromDegrees(p.lng - 0.001, p.lat - 0.001, height + 100),
+          orientation: {
+            heading: Cesium.Math.toRadians(30),
+            pitch: Cesium.Math.toRadians(-30),
+            roll: 0,
+          },
+          duration: 1.5,
+        });
+
+        document.getElementById("tex-status").textContent =
+          "✅ 적용 완료: " + (p.building_name || pnu) + " (" + width.toFixed(0) + "m × " + depth.toFixed(0) + "m × " + height + "m)";
+
+      } catch (e) {
+        document.getElementById("tex-status").textContent = "❌ 오류: " + e.message;
+      }
+    }
+
+    function removeTextureByPnu(pnu) {
+      const viewer = ws3d.viewer;
+      textureEntities = textureEntities.filter(t => {
+        if (t.pnu === pnu) {
+          viewer.entities.remove(t.entity);
+          return false;
+        }
+        return true;
+      });
+    }
+
+    function removeTexture() {
+      const pnu = document.getElementById("tex-pnu").value.trim();
+      if (pnu) {
+        removeTextureByPnu(pnu);
+        document.getElementById("tex-status").textContent = "텍스처 제거 완료";
+      } else {
+        // Remove all
+        const viewer = ws3d.viewer;
+        textureEntities.forEach(t => viewer.entities.remove(t.entity));
+        textureEntities = [];
+        document.getElementById("tex-status").textContent = "모든 텍스처 제거 완료";
+      }
+    }
 
     // --- Panel ---
     function showPanel(detail) {
