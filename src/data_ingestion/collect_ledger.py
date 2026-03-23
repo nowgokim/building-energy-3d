@@ -21,6 +21,35 @@ logger = logging.getLogger(__name__)
 BASE_URL = "https://apis.data.go.kr/1613000/BldRgstHubService"
 MAPO_SIGUNGU_CODE = "11440"
 
+# 서울시 전체 25개 자치구 시군구코드
+SEOUL_SIGUNGU_CODES: List[str] = [
+    "11110",  # 종로구
+    "11140",  # 중구
+    "11170",  # 용산구
+    "11200",  # 성동구
+    "11215",  # 광진구
+    "11230",  # 동대문구
+    "11260",  # 중랑구
+    "11290",  # 성북구
+    "11305",  # 강북구
+    "11320",  # 도봉구
+    "11350",  # 노원구
+    "11380",  # 은평구
+    "11410",  # 서대문구
+    "11440",  # 마포구
+    "11470",  # 양천구
+    "11500",  # 강서구
+    "11530",  # 구로구
+    "11545",  # 금천구
+    "11560",  # 영등포구
+    "11590",  # 동작구
+    "11620",  # 관악구
+    "11650",  # 서초구
+    "11680",  # 강남구
+    "11710",  # 송파구
+    "11740",  # 강동구
+]
+
 # 마포구 법정동 코드 목록 (현존하는 동)
 MAPO_BDONG_CODES: List[str] = [
     "10100",  # 아현동
@@ -214,6 +243,88 @@ def collect_mapo_ledger(api_key: str, db_url: str) -> Dict[str, Any]:
     }
     logger.info("Ledger collection complete. Total: %d, Failed: %d", total_records, len(failed_bdongs))
     return stats
+
+
+def collect_seoul_ledger(api_key: str, db_url: str, ledger_type: str = "recap") -> Dict[str, Any]:
+    """Collect building ledger data for all 25 districts of Seoul.
+
+    Args:
+        api_key: data.go.kr API service key.
+        db_url: SQLAlchemy PostgreSQL connection URL.
+        ledger_type: "recap" for 총괄표제부, "title" for 표제부.
+
+    Returns:
+        Dictionary with total_records and failed items.
+    """
+    api_func = _fetch_ledger_page if ledger_type == "recap" else _fetch_title_page
+    items_func = _items_to_dataframe if ledger_type == "recap" else _title_items_to_updates
+    table_name = "building_ledger"
+
+    logger.info("Starting Seoul-wide %s collection (%d 자치구)", ledger_type, len(SEOUL_SIGUNGU_CODES))
+
+    engine = create_engine(db_url)
+    total_records = 0
+    failed: list[str] = []
+
+    for gu_idx, sigungu_code in enumerate(SEOUL_SIGUNGU_CODES, start=1):
+        logger.info("=== [%d/%d] 자치구 %s ===", gu_idx, len(SEOUL_SIGUNGU_CODES), sigungu_code)
+
+        # Get 법정동 codes for this 구
+        try:
+            import PublicDataReader as pdr
+            bdong_codes_df = pdr.code_bdong()
+            gu_bdongs = bdong_codes_df[bdong_codes_df["시군구코드"] == sigungu_code]
+            if "삭제일자" in gu_bdongs.columns:
+                gu_bdongs = gu_bdongs[gu_bdongs["삭제일자"].isna()]
+            bdong_list = gu_bdongs["법정동코드"].unique().tolist()
+        except Exception:
+            logger.warning("Failed to get 법정동 codes for %s, skipping", sigungu_code)
+            failed.append(sigungu_code)
+            continue
+
+        logger.info("Found %d 법정동 in 자치구 %s", len(bdong_list), sigungu_code)
+
+        for bdong_idx, bdong_code in enumerate(bdong_list, start=1):
+            try:
+                all_items: list[dict] = []
+                page = 1
+                while True:
+                    items, total_count = api_func(api_key, sigungu_code, bdong_code, page=page)
+                    if not items:
+                        break
+                    all_items.extend(items)
+                    if len(all_items) >= total_count:
+                        break
+                    page += 1
+                    time.sleep(0.3)
+
+                if not all_items:
+                    time.sleep(0.2)
+                    continue
+
+                if ledger_type == "recap":
+                    df = items_func(all_items)
+                else:
+                    records = items_func(all_items)
+                    df = pd.DataFrame(records)
+
+                df.to_sql(name=table_name, con=engine, if_exists="append",
+                          index=False, method="multi", chunksize=500)
+
+                total_records += len(df)
+                if bdong_idx % 5 == 0 or bdong_idx == len(bdong_list):
+                    logger.info("[%s] %d/%d 법정동 완료 (누적: %d건)",
+                                sigungu_code, bdong_idx, len(bdong_list), total_records)
+
+            except Exception:
+                logger.exception("Failed %s/%s", sigungu_code, bdong_code)
+                failed.append(f"{sigungu_code}/{bdong_code}")
+
+            time.sleep(0.3)
+
+    engine.dispose()
+    logger.info("Seoul-wide %s complete. Total: %d, Failed: %d", ledger_type, total_records, len(failed))
+    return {"total_records": total_records, "failed": failed}
 
 
 # ---------------------------------------------------------------------------

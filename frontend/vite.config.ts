@@ -12,11 +12,16 @@ export default defineConfig({
       "/tiles": "http://localhost:8000",
     },
   },
+  appType: "mpa",
   optimizeDeps: {
     include: ["cesium"],
   },
   build: {
     rollupOptions: {
+      input: {
+        main: "index.html",
+        vworld: "vworld.html",
+      },
       output: {
         manualChunks: {
           cesium: ["cesium"],

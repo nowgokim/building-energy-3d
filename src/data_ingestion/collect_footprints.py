@@ -172,18 +172,22 @@ def load_footprints_from_vworld(
     Returns:
         Number of records loaded into the database.
     """
-    # 마포구 bbox를 ~3km 타일로 분할 (10km 제한 준수)
-    TILES = [
-        (126.890, 37.530, 126.920, 37.555),
-        (126.920, 37.530, 126.955, 37.555),
-        (126.955, 37.530, 126.975, 37.555),
-        (126.890, 37.555, 126.920, 37.580),
-        (126.920, 37.555, 126.955, 37.580),
-        (126.955, 37.555, 126.975, 37.580),
-        (126.890, 37.580, 126.920, 37.600),
-        (126.920, 37.580, 126.955, 37.600),
-        (126.955, 37.580, 126.975, 37.600),
-    ]
+    # bbox를 ~3km 타일로 자동 분할 (VWorld API 10km 제한 준수)
+    # 서울 전체: 약 126.76~127.18, 37.43~37.69
+    # 마포구: 약 126.89~126.97, 37.53~37.60
+    SEOUL_BBOX = (126.76, 37.43, 127.18, 37.69)
+    MAPO_BBOX = (126.89, 37.53, 126.975, 37.60)
+
+    bbox = SEOUL_BBOX  # 변경: MAPO_BBOX → SEOUL_BBOX
+    tile_step = 0.03  # ~3km per tile
+    TILES = []
+    w = bbox[0]
+    while w < bbox[2]:
+        s = bbox[1]
+        while s < bbox[3]:
+            TILES.append((w, s, min(w + tile_step, bbox[2]), min(s + tile_step, bbox[3])))
+            s += tile_step
+        w += tile_step
 
     logger.info("Fetching building footprints from VWorld API (LT_C_SPBD)")
 
