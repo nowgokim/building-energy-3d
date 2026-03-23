@@ -137,6 +137,15 @@
       document.getElementById("loading").style.display = "none";
       const viewer = ws3d.viewer;
 
+      // --- 성능 최적화 ---
+      // 타일 동시 요청 수 증가 (기본 6 → 18)
+      Cesium.RequestScheduler.requestsByServer["xdworld.vworld.kr:443"] = 18;
+      // 렌더링 최적화
+      viewer.scene.fog.enabled = true;
+      viewer.scene.fog.density = 0.0003;
+      // 먼 거리 건물 디테일 축소 (GPU 절약)
+      viewer.scene.globe.maximumScreenSpaceError = 4;
+
       // Load stats
       fetch(API + "/buildings/stats")
         .then((r) => r.json())
