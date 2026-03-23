@@ -458,85 +458,104 @@ src/
 - [x] **서울 전역 확장** — VWorld 766,386건 footprint + 에너지 추정 766,380건
 - [x] building_centroids 테이블 — Point GiST KNN pick 0.07ms (766K건)
 - [x] VWorld 타일 안정화 — tileCacheSize=1000, fog, 동시 요청 최적화
-- [ ] **도로명주소 검색** (행안부 API 연동) — 키 확보, 프론트엔드 미연동
-- [ ] 기본 필터 (에너지등급, 건축년도, 용도) — 백엔드 완료, 프론트엔드 미구현
 - [ ] 서울 전역 건축물대장 수집 — 현재 마포구만 (운영계정 필요)
 - **마일스톤**: ✅ **서울 전역** 3D 에너지 지도 VWorld 텍스처 건물 라이브 데모 완료
+
+### Phase 3.5: 분석 도구 전환 (1주) — 미착수
+
+> 전문가 리뷰 결과: "뷰어"에서 "분석 워크벤치"로 전환하는 핵심 기능
+
+- [ ] **필터 UI** — 에너지등급/용도/연대/면적 필터 패널 (백엔드 완료, P0)
+- [ ] **도로명주소 검색** — Juso API 연동 (키 확보, P0)
+- [ ] **데이터 신뢰도 표시** — 추정(archetype) vs 실측(BEEC) 구분 (P0)
+- [ ] **영역 선택 + CSV 내보내기** — 지도에서 영역 드래그 → 건물 목록 + CSV (P1)
+- [ ] **2D/3D 전환 토글** — 분석 시 2D 코로플레스, 탐색 시 3D (P1)
+- [ ] **색맹 접근성** — 색상+패턴 이중 인코딩, 최소 글자 크기 준수 (P1)
+- **마일스톤**: 에너지 감사원이 실무에 사용 가능한 분석 도구
 
 ### Phase 4: 에너지 시뮬레이션 + 예측 (6주) — 미착수
 
 #### 4-1. 시뮬레이션 기반 (2주)
-- [x] 건물 원형 분류 체계 — 40종 정의 (5용도 × 4연대 × 2~3구조)
-- [x] 외피 U-value 매핑 + 열화계수 (10년당 1.0/1.3/1.7/2.0)
-- [ ] **온돌(바닥복사난방)** 모델링
-- [ ] OpenStudio + EnergyPlus 원형별 시뮬레이션 (40종 × 365일 × 24시간)
-- [ ] 시뮬레이션 결과 DB 저장 (hourly output → energy_simulation_results 테이블)
+- [x] 건물 원형 분류 체계 — 40종 (향후 120종 확대 예정)
+- [x] 외피 U-value 매핑 + 열화계수
+- [ ] archetype 120종 확대 — 8용도 × 5연대 × 3구조 (단독주택, 다세대, 숙박 추가)
+- [ ] **지역난방 구분** — KDHC 열 공급 건물 분류 (서울 170만 가구)
+- [ ] **온돌(바닥복사난방)** 모델링 — 공동주택 원형
+- [ ] **한국형 점유 스케줄** — 09~21시 근무, 학원/상가 야간 운영
+- [ ] 열화계수 연속함수 전환 — 계단식(1.0/1.3/1.7/2.0) → 연속 + 부위별 차등
+- [ ] OpenStudio + EnergyPlus 원형별 시뮬레이션 (120종 × 365일 × 24시간)
+- [ ] 시뮬레이션 결과 DB 저장
 
 #### 4-2. 에너지 예측 모델 — 플러그인 아키텍처 (3주)
 
 **핵심 설계 원칙: 모델 교체 가능 (Pluggable Model Architecture)**
 
-예측 모델은 추상 인터페이스(`EnergyPredictor`)를 구현하며, 설정으로 모델을 선택할 수 있다. 기본 모델은 XGBoost/LSTM이지만, 사용자가 개발한 커스텀 모델로 언제든 교체 가능하다.
-
 ```python
-# 추상 인터페이스 (src/simulation/predictor_base.py)
 class EnergyPredictor(ABC):
-    @abstractmethod
-    def predict_daily(self, building: dict, date: str, weather: dict) -> dict: ...
-    @abstractmethod
-    def predict_hourly(self, building: dict, date: str, weather: dict) -> list[dict]: ...
-    @abstractmethod
-    def model_info(self) -> dict: ...  # 모델명, 버전, 학습 데이터 정보
+    def predict_daily(self, building, date, weather) -> dict: ...
+    def predict_hourly(self, building, date, weather) -> list[dict]: ...
+    def predict_batch(self, buildings, date, weather) -> list[dict]: ...  # 766K 일괄
+    def model_info(self) -> dict: ...
 ```
-
-**내장 모델 (기본 제공):**
 
 | 모델 ID | 예측 단위 | 알고리즘 | 학습 데이터 |
 |---------|----------|---------|-----------|
+| `archetype-annual-v1` | 연간 | 룩업 테이블 | 현재 (기본값) |
 | `xgboost-daily-v1` | 일단위 | XGBoost/LightGBM | EnergyPlus 시뮬레이션 |
-| `lstm-hourly-v1` | 시간단위 | LSTM | EnergyPlus hourly output |
-| `archetype-annual-v1` | 연간 | 룩업 테이블 | 현재 archetype (기본값) |
+| `lstm-hourly-v1` | 시간단위 | LSTM/Transformer | EnergyPlus hourly output |
+| 사용자 커스텀 | 선택 | 사용자 정의 | 사용자 정의 |
 
-**사용자 커스텀 모델 등록:**
+- [ ] `EnergyPredictor` ABC + `predict_batch()` (766K 일괄 추론)
+- [ ] `ModelRegistry` — 모델 등록/조회/버전 관리
+- [ ] 기상 데이터 수집 (기상청 API — KMA ASOS)
+- [ ] XGBoost 일단위 모델 학습 + **불확실성 범위 표시** (10/50/90 백분위)
+- [ ] LSTM 시간단위 모델 학습
+- [ ] 커스텀 모델 등록 가이드
 
-```python
-# 사용자가 구현하는 커스텀 모델 예시
-class MyCustomPredictor(EnergyPredictor):
-    def predict_daily(self, building, date, weather):
-        # 사용자 자체 모델 로직
-        return {"heating": ..., "cooling": ..., "total": ...}
-```
+#### 4-3. 탄소 + 1차에너지 + 리트로핏 (1주)
+- [ ] **1차에너지 환산** — 전력 2.75, 도시가스 1.1, 지역난방 0.728
+- [ ] **CO2 배출량 산출** — 에너지 × 배출계수 (건물별/블록별/구별)
+- [ ] **리트로핏 비용 계산기** — 창호/외단열 → 절감액 + 회수기간
+- [ ] BEEC/ZEB 통합 등급 체계 반영 (2025.1.1 통합 시행)
 
-```yaml
-# config.yaml 또는 .env로 모델 선택
-ENERGY_PREDICTOR_DAILY=xgboost-daily-v1     # 또는 my-custom-daily
-ENERGY_PREDICTOR_HOURLY=lstm-hourly-v1       # 또는 my-custom-hourly
-```
+#### 4-4. 예측 API + 뷰어 연동 (1주)
+- [ ] `GET /buildings/{pnu}/energy/daily?date=&model=`
+- [ ] `GET /buildings/{pnu}/energy/hourly?date=&model=`
+- [ ] `GET /models` — 모델 목록
+- [ ] 상세 패널: 일별/시간별 차트 + 날짜 선택기 + 모델 선택
+- [ ] 리트로핏 슬라이더 (U-value 변경 → 절감 효과 실시간)
+- **마일스톤**: 에너지 예측 + 탄소 배출 + 리트로핏 분석 완성
 
-- [ ] `EnergyPredictor` 추상 인터페이스 정의
-- [ ] 모델 레지스트리 (`ModelRegistry`) — 이름으로 모델 로드
-- [ ] XGBoost 일단위 예측 모델 학습 + 등록
-- [ ] LSTM 시간단위 예측 모델 학습 + 등록
-- [ ] 기상 데이터 수집 (기상청 API)
-- [ ] 커스텀 모델 등록 가이드 문서
+### Phase 5: 고도화 + 사업화 (지속) — 미착수
 
-#### 4-3. 예측 API + 뷰어 연동 (1주)
-- [ ] `GET /api/v1/buildings/{pnu}/energy/daily?date=YYYY-MM-DD&model=xgboost-daily-v1`
-- [ ] `GET /api/v1/buildings/{pnu}/energy/hourly?date=YYYY-MM-DD&model=lstm-hourly-v1`
-- [ ] `GET /api/v1/models` — 사용 가능한 모델 목록
-- [ ] VWorld 뷰어 상세 패널에 일별/시간별 에너지 차트 추가
-- [ ] 간소화 리트로핏 추정 (창호/외단열 변경 효과)
-- **마일스톤**: 서울 전역 건물 일/시간 에너지 예측 + 모델 선택 가능
-
-### Phase 5: 고도화 (지속) — 미착수
-- [ ] 상세 리트로핏 시나리오 비교 뷰
+#### 기능 고도화
+- [ ] **시간대별 에너지 애니메이션** — 타임 슬라이더로 24시간 소비 변화 시각화
+- [ ] **건물 비교 뷰** — 2~3개 건물 나란히 비교
+- [ ] **ZEB 전환 잠재량 지도** — 지구 단위 ZEB 전환 필요 규모
+- [ ] **베이지안 보정** — 실측 데이터 있는 건물로 주변 추정 정확도 개선
 - [ ] 통계 대시보드 (구별/용도별/연대별)
-- [ ] 내보내기 (CSV, PDF 에너지 진단 리포트) — CSV export 엔드포인트만 구현
+- [ ] PDF 에너지 진단 리포트 (구별 리포트 자동 생성)
 - [ ] UHI(도시열섬) 보정 적용
-- [ ] 접근성 대안 뷰 (표 형태, WCAG 2.1 AA)
+- [ ] 접근성 (WCAG 2.1 AA, 표 형태 대안 뷰)
+- [ ] 모바일 대응 (바텀시트 패널, 반응형)
+
+#### 인프라 + 운영
+- [ ] Redis 캐싱 (stats 5분, detail 1시간)
+- [ ] API 페이지네이션 (커서 기반)
+- [ ] 벡터 타일 (ST_AsMVT) — 766K건 지도 표시 최적화
+- [ ] MV CONCURRENTLY 리프레시 + UNIQUE INDEX
+- [ ] Alembic DB 마이그레이션
+- [ ] CI/CD (GitHub Actions: lint→test→build→deploy)
+- [ ] 인증/인가 (API Key → JWT)
+- [ ] Prometheus 모니터링
+
+#### 사업화
+- [ ] **공개 API** — 제3자 앱 연동 (PropTech 생태계)
+- [ ] 정부 사업 입찰 (디지털트윈, 스마트시티 챌린지)
+- [ ] 전국 확장 (VWorld 전국 커버, footprint 수집만 추가)
 - [ ] 사용자 커스텀 모델 업로드 UI
-- [ ] 모델 성능 비교 대시보드 (모델 A vs B 정확도)
-- [ ] 추가 지역 확장
+- [ ] 모델 성능 비교 대시보드
+- [ ] ESG 리포트 생성 (Scope 1/2 탄소 배출)
 
 ---
 

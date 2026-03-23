@@ -646,22 +646,62 @@ viewer.camera.flyTo({
     └──────────────────────────────────────┘
 ```
 
-### 추상 인터페이스
+### 추상 인터페이스 (전문가 리뷰 반영)
 
 ```python
 # src/simulation/predictor_base.py
 class EnergyPredictor(ABC):
     @abstractmethod
     def predict_daily(self, building: dict, date: str, weather: dict) -> dict:
-        """일단위 예측 → {heating, cooling, hot_water, lighting, ventilation, total} (kWh/m²/day)"""
+        """일단위 예측 → {heating, cooling, hot_water, lighting, ventilation, total,
+         confidence_low, confidence_high} (kWh/m²/day, 10/90 백분위 포함)"""
 
     @abstractmethod
     def predict_hourly(self, building: dict, date: str, weather: dict) -> list[dict]:
         """시간단위 예측 → [{hour, heating, cooling, ..., total}, ...] × 24 (kWh/m²/hr)"""
 
     @abstractmethod
+    def predict_batch(self, buildings: list[dict], date: str, weather: dict) -> list[dict]:
+        """일괄 예측 — 766K 건물 대량 추론용"""
+
+    @abstractmethod
     def model_info(self) -> dict:
         """모델 메타 → {id, name, version, type, algorithm, training_data, accuracy_metrics}"""
+
+    def load(self) -> None: ...       # 모델 로드 (가중치/아티팩트)
+    def is_ready(self) -> bool: ...   # 헬스 체크
+    def unload(self) -> None: ...     # 리소스 해제
+```
+
+### 입출력 스키마 (Pydantic)
+
+```python
+class BuildingFeatures(BaseModel):
+    pnu: str
+    usage_type: str           # 8종: apartment, detached, multi_family, office, ...
+    vintage_class: str        # 5종: pre-1980, 1980-2000, 2001-2009, 2010-2016, 2017+
+    structure_type: str       # RC, steel, masonry
+    height: float
+    floors_above: int
+    total_area: float
+    wall_uvalue: float
+    window_uvalue: float
+    wwr: float
+    district_heating: bool    # 지역난방 여부
+    orientation: float | None # 방위각 (향후)
+
+class EnergyPrediction(BaseModel):
+    heating: float
+    cooling: float
+    hot_water: float
+    lighting: float
+    ventilation: float
+    total: float
+    confidence_low: float     # 10th 백분위
+    confidence_high: float    # 90th 백분위
+    co2_emissions: float      # tCO2 (에너지 × 배출계수)
+    primary_energy: float     # 1차에너지 (kWh/m²)
+    data_source: str          # "archetype_estimate" | "beec_certified" | "metered"
 ```
 
 ### 내장 모델
