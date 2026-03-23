@@ -351,29 +351,52 @@
         // Remove existing texture overlay for this PNU
         removeTextureByPnu(pnu);
 
-        // Create textured box overlay
-        const centerHeight = height / 2;
-        const position = Cesium.Cartesian3.fromDegrees(p.lng, p.lat, centerHeight);
-        const heading = Cesium.Math.toRadians(0);
-        const hpr = new Cesium.HeadingPitchRoll(heading, 0, 0);
-        const orientation = Cesium.Transforms.headingPitchRollQuaternion(position, hpr);
+        const viewer = ws3d.viewer;
 
-        const entity = viewer.entities.add({
-          name: "texture_" + pnu,
-          position: position,
-          orientation: orientation,
-          box: {
-            dimensions: new Cesium.Cartesian3(width, depth, height),
-            material: new Cesium.ImageMaterialProperty({
-              image: imageUrl,
-              transparent: alpha < 1.0,
-              color: Cesium.Color.WHITE.withAlpha(alpha),
-            }),
-          },
-          properties: { pnu: pnu, type: "texture_overlay" },
-        });
+        // Use actual building footprint polygon
+        if (geom && geom.type === "MultiPolygon") {
+          const addedEntities = [];
 
-        textureEntities.push({ pnu: pnu, entity: entity });
+          for (const polygon of geom.coordinates) {
+            const outerRing = polygon[0];
+            const positions = Cesium.Cartesian3.fromDegreesArray(
+              outerRing.flatMap(c => [c[0], c[1]])
+            );
+
+            // Holes (courtyards)
+            const holes = polygon.slice(1).map(ring =>
+              new Cesium.PolygonHierarchy(
+                Cesium.Cartesian3.fromDegreesArray(ring.flatMap(c => [c[0], c[1]]))
+              )
+            );
+
+            const entity = viewer.entities.add({
+              name: "texture_" + pnu,
+              polygon: {
+                hierarchy: new Cesium.PolygonHierarchy(positions, holes),
+                height: 0,
+                extrudedHeight: height,
+                material: new Cesium.ImageMaterialProperty({
+                  image: imageUrl,
+                  repeat: new Cesium.Cartesian2(
+                    Math.max(1, Math.round(width / 10)),
+                    Math.max(1, Math.round(height / 10))
+                  ),
+                  transparent: alpha < 1.0,
+                  color: Cesium.Color.WHITE.withAlpha(alpha),
+                }),
+                outline: true,
+                outlineColor: Cesium.Color.WHITE.withAlpha(0.5),
+                outlineWidth: 1,
+              },
+              properties: { pnu: pnu, type: "texture_overlay" },
+            });
+
+            addedEntities.push(entity);
+          }
+
+          textureEntities.push({ pnu: pnu, entities: addedEntities });
+        }
 
         // Fly to building
         viewer.camera.flyTo({
@@ -398,7 +421,7 @@
       const viewer = ws3d.viewer;
       textureEntities = textureEntities.filter(t => {
         if (t.pnu === pnu) {
-          viewer.entities.remove(t.entity);
+          (t.entities || [t.entity]).forEach(e => viewer.entities.remove(e));
           return false;
         }
         return true;
@@ -411,9 +434,10 @@
         removeTextureByPnu(pnu);
         document.getElementById("tex-status").textContent = "텍스처 제거 완료";
       } else {
-        // Remove all
         const viewer = ws3d.viewer;
-        textureEntities.forEach(t => viewer.entities.remove(t.entity));
+        textureEntities.forEach(t => {
+          (t.entities || [t.entity]).forEach(e => viewer.entities.remove(e));
+        });
         textureEntities = [];
         document.getElementById("tex-status").textContent = "모든 텍스처 제거 완료";
       }
