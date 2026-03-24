@@ -30,19 +30,20 @@
     #search-results .item:hover { background: #f0f7ff; }
 
     #panel {
-      position: absolute; top: 0; right: 0; width: 320px; height: 100%; z-index: 100;
-      background: rgba(255,255,255,0.96); box-shadow: -2px 0 12px rgba(0,0,0,0.1);
-      overflow-y: auto; display: none; padding: 16px;
+      position: absolute; top: 12px; right: 12px; width: 230px; z-index: 100;
+      max-height: calc(100vh - 24px);
+      background: rgba(255,255,255,0.96); border-radius: 10px; box-shadow: 0 2px 16px rgba(0,0,0,0.15);
+      overflow-y: auto; display: none; padding: 12px;
     }
-    #panel .close { float: right; cursor: pointer; font-size: 20px; color: #999; }
-    #panel h2 { font-size: 16px; margin: 0 0 12px; }
-    #panel .metrics { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 16px; }
-    #panel .metric { text-align: center; background: #f5f5f5; border-radius: 8px; padding: 8px; }
-    #panel .metric .value { font-size: 18px; font-weight: bold; }
-    #panel .metric .label { font-size: 10px; color: #888; }
-    #panel .info { font-size: 13px; }
+    #panel .close { float: right; cursor: pointer; font-size: 18px; color: #999; line-height: 1; }
+    #panel h2 { font-size: 13px; margin: 0 0 8px; }
+    #panel .metrics { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-bottom: 10px; }
+    #panel .metric { text-align: center; background: #f5f5f5; border-radius: 6px; padding: 6px 4px; }
+    #panel .metric .value { font-size: 14px; font-weight: bold; }
+    #panel .metric .label { font-size: 9px; color: #888; }
+    #panel .info { font-size: 12px; }
     #panel .info dt { color: #888; }
-    #panel .info dd { margin: 0 0 6px; font-weight: 500; }
+    #panel .info dd { margin: 0 0 4px; font-weight: 500; }
 
     #stats-bar {
       position: absolute; bottom: 12px; left: 12px; z-index: 100;
@@ -65,23 +66,27 @@
       padding: 12px 24px; border-radius: 8px; }
 
     #texture-panel {
-      position: absolute; top: 60px; left: 12px; z-index: 100;
-      background: rgba(255,255,255,0.95); border-radius: 8px; padding: 12px;
-      box-shadow: 0 2px 12px rgba(0,0,0,0.15); width: 280px; display: none;
-      font-size: 13px;
+      position: absolute; top: 108px; left: 12px; z-index: 100;
+      background: rgba(255,255,255,0.95); border-radius: 8px; padding: 10px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.15); width: 210px; display: none;
+      font-size: 12px;
     }
-    #texture-panel h3 { margin: 0 0 8px; font-size: 14px; }
-    #texture-panel label { display: block; margin: 6px 0 2px; color: #666; font-size: 11px; }
+    #texture-panel h3 { margin: 0 0 6px; font-size: 13px; }
+    #texture-panel label { display: block; margin: 4px 0 2px; color: #666; font-size: 10px; }
     #texture-panel input, #texture-panel select {
-      width: 100%; padding: 6px 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 12px;
+      width: 100%; padding: 4px 6px; border: 1px solid #ddd; border-radius: 4px; font-size: 11px;
     }
     #texture-panel .btn {
-      margin-top: 8px; padding: 6px 12px; border: none; border-radius: 4px;
-      cursor: pointer; font-size: 12px;
+      margin-top: 6px; padding: 5px 10px; border: none; border-radius: 4px;
+      cursor: pointer; font-size: 11px;
     }
     #texture-panel .btn-apply { background: #4a9eff; color: #fff; }
     #texture-panel .btn-remove { background: #ff5252; color: #fff; margin-left: 4px; }
     #texture-panel .btn-toggle { background: #666; color: #fff; }
+    #applied-faces { margin-top: 4px; max-height: 100px; overflow-y: auto; }
+    .face-item { display: flex; align-items: center; gap: 4px; padding: 2px 0; border-bottom: 1px solid #eee; }
+    .face-item .face-name { flex: 1; font-size: 10px; color: #555; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .face-item .face-remove { background: #ff5252; color: #fff; border: none; border-radius: 3px; padding: 1px 5px; cursor: pointer; font-size: 10px; flex-shrink: 0; }
     #texture-btn {
       position: absolute; top: 60px; left: 12px; z-index: 100;
       background: rgba(255,255,255,0.9); border: none; border-radius: 8px;
@@ -99,19 +104,8 @@
 
   <!-- Texture Overlay Panel -->
   <div id="texture-panel">
-    <h3>🎨 건물 텍스처 오버레이</h3>
-    <label>적용 범위</label>
-    <select id="tex-scope">
-      <option value="building">특정 건물 (PNU)</option>
-      <option value="dong">특정 동 (아파트 동)</option>
-      <option value="area">영역 내 전체 건물</option>
-    </select>
-
-    <label>PNU 코드 (건물 클릭하면 자동 입력)</label>
-    <input type="text" id="tex-pnu" placeholder="1144010400101690001" value="1144010400101690001" />
-
-    <label>동/호수 (선택)</label>
-    <input type="text" id="tex-dong" placeholder="예: 101동, 3층" />
+    <h3>🎨 면 텍스처</h3>
+    <div style="font-size:10px;color:#4a9eff;margin-bottom:6px;">건물 면을 클릭하면 해당 면에 적용</div>
 
     <label>이미지 URL 또는 파일</label>
     <input type="text" id="tex-url" placeholder="/uploads/test_texture.jpg" value="/uploads/test_texture.jpg" />
@@ -120,18 +114,12 @@
     <label>투명도</label>
     <input type="range" id="tex-alpha" min="0.1" max="1.0" step="0.1" value="0.9" />
 
-    <label>적용 면</label>
-    <select id="tex-face">
-      <option value="all">전체 (4면+지붕)</option>
-      <option value="front">전면만</option>
-      <option value="walls">벽면만 (지붕 제외)</option>
-    </select>
-
-    <div style="margin-top:10px">
-      <button class="btn btn-apply" onclick="applyTexture()">적용</button>
-      <button class="btn btn-remove" onclick="removeTexture()">제거</button>
+    <div style="margin-top:8px">
+      <button class="btn btn-remove" onclick="removeTexture()">전체 제거</button>
     </div>
-    <div id="tex-status" style="margin-top:6px; font-size:11px; color:#888;"></div>
+    <div id="tex-status" style="margin-top:6px; font-size:10px; color:#888;"></div>
+    <div id="applied-faces-label" style="font-size:10px;color:#666;margin-top:6px;display:none;">적용된 면</div>
+    <div id="applied-faces"></div>
   </div>
 
   <!-- Search -->
@@ -235,7 +223,11 @@
           const ray = viewer.camera.getPickRay(event.position);
           if (ray) cartesian = viewer.scene.globe.pick(ray, viewer.scene);
         }
-        if (!cartesian) return;
+        if (!cartesian) {
+          // 빈 하늘 클릭 → 텍스처 패널 닫기
+          closeTexturePanel();
+          return;
+        }
 
         const carto = Cesium.Cartographic.fromCartesian(cartesian);
         const lng = Cesium.Math.toDegrees(carto.longitude);
@@ -245,11 +237,12 @@
           .then((r) => r.json())
           .then((result) => {
             if (!result.pnu) return;
-            // 텍스처 패널이 열려있으면 PNU 자동 입력
-            if (document.getElementById("texture-panel").style.display === "block") {
-              document.getElementById("tex-pnu").value = result.pnu;
-              document.getElementById("tex-status").textContent = "선택: " + (result.building_name || result.pnu);
+            if (textureMode) {
+              // 텍스처 모드: 면 텍스처만 적용, 에너지 패널 표시 안 함
+              applyFaceTexture(lng, lat, carto.height, result.pnu, controller.signal);
+              return;
             }
+            // 에너지 모드: 건물 상세 정보 표시
             return fetch(API + "/buildings/" + result.pnu, { signal: controller.signal });
           })
           .then((r) => r && r.json())
@@ -264,16 +257,62 @@
 
     // --- Texture Overlay ---
     let textureEntities = [];
+    let textureMode = false;  // 텍스처 모드 ON/OFF (에너지 정보 표시와 배타적)
+
+    // Haversine 거리 (미터) — 88000/111000 근사 대체
+    function haversineDistance(lat1, lon1, lat2, lon2) {
+      const R = 6371000;
+      const dLat = (lat2 - lat1) * Math.PI / 180;
+      const dLon = (lon2 - lon1) * Math.PI / 180;
+      const a = Math.sin(dLat/2)**2 +
+                Math.cos(lat1*Math.PI/180) * Math.cos(lat2*Math.PI/180) * Math.sin(dLon/2)**2;
+      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    }
+
+    // 폴리곤 방향 정규화 — Shoelace 공식으로 CCW 보장 (텍스처 방향 일관성)
+    function ensureCCW(ring) {
+      let area = 0;
+      for (let i = 0; i < ring.length - 1; i++) {
+        area += ring[i][0] * ring[i+1][1];
+        area -= ring[i+1][0] * ring[i][1];
+      }
+      return area < 0 ? [...ring].reverse() : ring;
+    }
+
+    // 이미지 CORS 프리로드 검증
+    function preloadImage(url) {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => resolve(url);
+        img.onerror = () => reject(new Error('이미지 로드 실패: ' + url));
+        img.src = url;
+      });
+    }
+
+    function closeTexturePanel() {
+      textureMode = false;
+      document.getElementById("texture-panel").style.display = "none";
+      const btn = document.getElementById("texture-btn");
+      btn.textContent = "🎨 텍스처";
+      btn.style.background = "rgba(255,255,255,0.9)";
+      btn.style.color = "#333";
+    }
 
     function toggleTexturePanel() {
+      textureMode = !textureMode;
       const panel = document.getElementById("texture-panel");
       const btn = document.getElementById("texture-btn");
-      if (panel.style.display === "block") {
-        panel.style.display = "none";
-        btn.style.display = "block";
-      } else {
+      if (textureMode) {
         panel.style.display = "block";
-        btn.style.display = "none";
+        btn.textContent = "🎨 텍스처 ON";
+        btn.style.background = "#4a9eff";
+        btn.style.color = "#fff";
+      } else {
+        panel.style.display = "none";
+        btn.textContent = "🎨 텍스처";
+        btn.style.background = "rgba(255,255,255,0.9)";
+        btn.style.color = "#333";
       }
     }
 
@@ -289,152 +328,212 @@
       reader.readAsDataURL(file);
     });
 
-    async function applyTexture() {
-      const pnu = document.getElementById("tex-pnu").value.trim();
+    // 점 P에서 선분 (A→B)까지의 최단 거리 — cos(lat) 보정으로 경도 왜곡 제거
+    function pointToSegmentDist(px, py, ax, ay, bx, by) {
+      const cosLat = Math.cos((py + ay) / 2 * Math.PI / 180);
+      // 경도를 미터 비례로 보정
+      const spx = px * cosLat, spy = py;
+      const sax = ax * cosLat, say = ay;
+      const sbx = bx * cosLat, sby = by;
+      const dx = sbx - sax, dy = sby - say;
+      if (dx === 0 && dy === 0) return Math.hypot(spx - sax, spy - say);
+      const t = Math.max(0, Math.min(1, ((spx-sax)*dx + (spy-say)*dy) / (dx*dx + dy*dy)));
+      return Math.hypot(spx - (sax + t*dx), spy - (say + t*dy));
+    }
+
+    // 클릭 좌표에서 가장 가까운 footprint edge 인덱스 반환
+    function findNearestEdge(outerRing, clickLng, clickLat) {
+      let minDist = Infinity, nearestIdx = 0;
+      for (let i = 0; i < outerRing.length - 1; i++) {
+        const dist = pointToSegmentDist(
+          clickLng, clickLat,
+          outerRing[i][0], outerRing[i][1],
+          outerRing[i+1][0], outerRing[i+1][1]
+        );
+        if (dist < minDist) { minDist = dist; nearestIdx = i; }
+      }
+      return nearestIdx;
+    }
+
+    // 클릭한 면에만 텍스처 적용
+    async function applyFaceTexture(clickLng, clickLat, clickHeight, pnu, signal) {
       const imageUrl = document.getElementById("tex-url").value.trim();
       const alpha = parseFloat(document.getElementById("tex-alpha").value);
-      const scope = document.getElementById("tex-scope").value;
-      const face = document.getElementById("tex-face").value;
+      const statusEl = document.getElementById("tex-status");
 
-      if (!pnu || !imageUrl) {
-        document.getElementById("tex-status").textContent = "PNU와 이미지를 입력하세요";
+      if (!imageUrl) {
+        statusEl.textContent = "이미지 URL을 먼저 입력하세요";
         return;
       }
 
-      document.getElementById("tex-status").textContent = "건물 정보 조회 중...";
+      const absImageUrl = imageUrl.startsWith('/') ? window.location.origin + imageUrl : imageUrl;
 
+      // 이미지 프리로드 (첫 번째 적용 시만 검증)
+      if (!applyFaceTexture._validated || applyFaceTexture._lastUrl !== absImageUrl) {
+        try {
+          await preloadImage(absImageUrl);
+          applyFaceTexture._validated = true;
+          applyFaceTexture._lastUrl = absImageUrl;
+        } catch(e) {
+          statusEl.textContent = "❌ 이미지 로드 실패: " + imageUrl;
+          return;
+        }
+      }
+
+      statusEl.textContent = "건물 정보 조회 중...";
       try {
-        // Get building info from API
-        const resp = await fetch(API + "/buildings/" + pnu);
+        const resp = await fetch(API + "/buildings/" + pnu, { signal });
         const detail = await resp.json();
         const p = detail.properties;
+        const geom = detail.geometry;
 
-        if (!p || !p.lng || !p.lat) {
-          document.getElementById("tex-status").textContent = "건물을 찾을 수 없습니다";
+        if (!p || !p.lng || !p.lat || !geom) {
+          statusEl.textContent = "건물 데이터 없음";
           return;
         }
 
-        const height = p.height || 30;
-        const geom = detail.geometry;
+        const buildingHeight = p.height || 10;
         const viewer = ws3d.viewer;
 
-        // Calculate building dimensions from geometry
-        let width = 30, depth = 30;
-        if (geom && geom.type === "MultiPolygon") {
-          const coords = geom.coordinates[0][0];
-          let minLng = 999, maxLng = -999, minLat = 999, maxLat = -999;
-          coords.forEach(c => {
-            minLng = Math.min(minLng, c[0]);
-            maxLng = Math.max(maxLng, c[0]);
-            minLat = Math.min(minLat, c[1]);
-            maxLat = Math.max(maxLat, c[1]);
-          });
-          width = (maxLng - minLng) * 88000;  // meters
-          depth = (maxLat - minLat) * 111000;
+        // 지형 높이 샘플링
+        let terrainBase = 0;
+        try {
+          const [sampled] = await Cesium.sampleTerrainMostDetailed(
+            viewer.terrainProvider,
+            [Cesium.Cartographic.fromDegrees(p.lng, p.lat)]
+          );
+          terrainBase = sampled.height || 0;
+        } catch(_) {
+          terrainBase = viewer.scene.globe.getHeight(
+            Cesium.Cartographic.fromDegrees(p.lng, p.lat)
+          ) || 0;
         }
 
-        // Remove existing texture overlay for this PNU
-        removeTextureByPnu(pnu);
+        // 클릭 높이로 건물 높이 추정: 클릭 지점 기준 절대높이 사용
+        const clickAltAbsolute = clickHeight; // 해수면 기준
+        // 건물 높이는 API 값, 지형 기준으로 최소/최대 결정
+        const wallBottom = terrainBase;
+        const wallTop = terrainBase + buildingHeight;
 
-        // Use actual building footprint polygon
-        if (geom && geom.type === "MultiPolygon") {
-          const addedEntities = [];
-
-          for (const polygon of geom.coordinates) {
-            const outerRing = polygon[0];
-
-            // --- 벽면: 각 면을 개별 WallGraphics로 분리 (왜곡 방지) ---
-            for (let i = 0; i < outerRing.length - 1; i++) {
-              const p1 = outerRing[i];
-              const p2 = outerRing[i + 1];
-
-              // 이 면의 실제 폭 (미터)
-              const faceWidth = Math.sqrt(
-                Math.pow((p2[0] - p1[0]) * 88000, 2) +
-                Math.pow((p2[1] - p1[1]) * 111000, 2)
-              );
-
-              // 이미지 반복 — 면 비율에 맞게
-              const repeatX = Math.max(1, Math.round(faceWidth / height));
-
-              const wallEntity = viewer.entities.add({
-                name: "texture_wall_" + pnu + "_" + i,
-                wall: {
-                  positions: Cesium.Cartesian3.fromDegreesArray([p1[0], p1[1], p2[0], p2[1]]),
-                  minimumHeights: [0, 0],
-                  maximumHeights: [height, height],
-                  material: new Cesium.ImageMaterialProperty({
-                    image: imageUrl,
-                    repeat: new Cesium.Cartesian2(repeatX, 1),
-                    transparent: alpha < 1.0,
-                    color: Cesium.Color.WHITE.withAlpha(alpha),
-                  }),
-                },
-                properties: { pnu: pnu, type: "texture_overlay" },
-              });
-              addedEntities.push(wallEntity);
-            }
-
-            // --- 지붕: PolygonGraphics (상단 면) ---
-            const roofPositions = Cesium.Cartesian3.fromDegreesArray(
-              outerRing.flatMap(c => [c[0], c[1]])
-            );
-            const holes = polygon.slice(1).map(ring =>
-              new Cesium.PolygonHierarchy(
-                Cesium.Cartesian3.fromDegreesArray(ring.flatMap(c => [c[0], c[1]]))
-              )
-            );
-
-            const roofEntity = viewer.entities.add({
-              name: "texture_roof_" + pnu,
-              polygon: {
-                hierarchy: new Cesium.PolygonHierarchy(roofPositions, holes),
-                height: height,
-                material: Cesium.Color.fromAlpha(Cesium.Color.DARKGRAY, alpha * 0.8),
-                outline: false,
-              },
-              properties: { pnu: pnu, type: "texture_overlay" },
-            });
-            addedEntities.push(roofEntity);
+        // Polygon vs MultiPolygon 처리 — coordinates 구조가 다름
+        let outerRing;
+        if (geom.type === 'MultiPolygon') {
+          // MultiPolygon: coordinates[polyIdx][ringIdx][pointIdx]
+          // 클릭 좌표에 가장 가까운 서브폴리곤 선택
+          let minD = Infinity, bestPoly = 0;
+          for (let pi = 0; pi < geom.coordinates.length; pi++) {
+            const ring = geom.coordinates[pi][0];
+            const cx = ring.reduce((s, pt) => s + pt[0], 0) / ring.length;
+            const cy = ring.reduce((s, pt) => s + pt[1], 0) / ring.length;
+            const d = Math.hypot(cx - clickLng, cy - clickLat);
+            if (d < minD) { minD = d; bestPoly = pi; }
           }
+          outerRing = geom.coordinates[bestPoly][0];
+        } else {
+          // Polygon: coordinates[ringIdx][pointIdx]
+          outerRing = geom.coordinates[0];
+        }
+        outerRing = ensureCCW(outerRing);
+        const edgeIdx = findNearestEdge(outerRing, clickLng, clickLat);
+        const p1 = outerRing[edgeIdx];
+        const p2 = outerRing[edgeIdx + 1];
 
-          textureEntities.push({ pnu: pnu, entities: addedEntities });
+        const faceWidth = haversineDistance(p1[1], p1[0], p2[1], p2[0]);
+        if (faceWidth < 0.3) {
+          statusEl.textContent = "너무 짧은 면입니다. 다른 면을 클릭하세요";
+          return;
         }
 
-        // 카메라 위치 유지 (이동하지 않음)
+        const repeatX = Math.max(1, Math.round(faceWidth / buildingHeight));
 
-        document.getElementById("tex-status").textContent =
-          "✅ 적용 완료: " + (p.building_name || pnu) + " (" + width.toFixed(0) + "m × " + depth.toFixed(0) + "m × " + height + "m)";
+        // 같은 면 재클릭 시 토글(제거)
+        const entityKey = pnu + "_" + edgeIdx;
+        const existingIdx = textureEntities.findIndex(t => t.key === entityKey);
+        if (existingIdx !== -1) {
+          viewer.entities.remove(textureEntities[existingIdx].entity);
+          textureEntities.splice(existingIdx, 1);
+          updateAppliedFacesList();
+          statusEl.textContent = `면${edgeIdx} 텍스처 제거됨`;
+          return;
+        }
 
-      } catch (e) {
-        document.getElementById("tex-status").textContent = "❌ 오류: " + e.message;
+        // CCW 외부 법선 오프셋 (1.5m) — VWorld 3D 타일 depth-fighting 방지 (cos(lat) 보정)
+        const cosLat = Math.cos((p1[1] + p2[1]) / 2 * Math.PI / 180);
+        const edgeDxM = (p2[0] - p1[0]) * cosLat; // 미터 비례 x
+        const edgeDyM = (p2[1] - p1[1]);           // 미터 비례 y
+        const edgeLenM = Math.sqrt(edgeDxM*edgeDxM + edgeDyM*edgeDyM);
+        let op1 = p1, op2 = p2;
+        if (edgeLenM > 0) {
+          // 외부 법선 방향: (edgeDyM, -edgeDxM) → 도(degree) 단위로 변환
+          const offsetLng = edgeDyM / edgeLenM * 1.5 / (111000 * cosLat);
+          const offsetLat = -edgeDxM / edgeLenM * 1.5 / 111000;
+          op1 = [p1[0] + offsetLng, p1[1] + offsetLat];
+          op2 = [p2[0] + offsetLng, p2[1] + offsetLat];
+        }
+
+        const wallEntity = viewer.entities.add({
+          name: "texture_wall_" + entityKey,
+          wall: {
+            positions: Cesium.Cartesian3.fromDegreesArray([op1[0], op1[1], op2[0], op2[1]]),
+            minimumHeights: [wallBottom, wallBottom],
+            maximumHeights: [wallTop, wallTop],
+            material: new Cesium.ImageMaterialProperty({
+              image: absImageUrl,
+              repeat: new Cesium.Cartesian2(repeatX, 1),
+              transparent: alpha < 1.0,
+              color: new Cesium.Color(1, 1, 1, alpha),
+            }),
+          },
+          properties: { pnu, type: "texture_overlay", edgeIdx },
+        });
+
+        const faceLabel = (p.building_name || pnu.slice(-6)) + " 면" + edgeIdx;
+        textureEntities.push({ key: entityKey, pnu, entity: wallEntity, label: faceLabel });
+        updateAppliedFacesList();
+
+        statusEl.textContent =
+          `✅ ${p.building_name || pnu} | 면${edgeIdx} (${faceWidth.toFixed(0)}m × ${buildingHeight}m) | 지면 ${terrainBase.toFixed(1)}m`;
+
+      } catch(e) {
+        if (e.name !== "AbortError") statusEl.textContent = "❌ " + e.message;
       }
-    }
-
-    function removeTextureByPnu(pnu) {
-      const viewer = ws3d.viewer;
-      textureEntities = textureEntities.filter(t => {
-        if (t.pnu === pnu) {
-          (t.entities || [t.entity]).forEach(e => viewer.entities.remove(e));
-          return false;
-        }
-        return true;
-      });
     }
 
     function removeTexture() {
-      const pnu = document.getElementById("tex-pnu").value.trim();
-      if (pnu) {
-        removeTextureByPnu(pnu);
-        document.getElementById("tex-status").textContent = "텍스처 제거 완료";
-      } else {
-        const viewer = ws3d.viewer;
-        textureEntities.forEach(t => {
-          (t.entities || [t.entity]).forEach(e => viewer.entities.remove(e));
-        });
-        textureEntities = [];
-        document.getElementById("tex-status").textContent = "모든 텍스처 제거 완료";
+      const viewer = ws3d.viewer;
+      textureEntities.forEach(t => viewer.entities.remove(t.entity));
+      textureEntities = [];
+      applyFaceTexture._validated = false;
+      updateAppliedFacesList();
+      document.getElementById("tex-status").textContent = "모든 텍스처 제거 완료";
+    }
+
+    function updateAppliedFacesList() {
+      const list = document.getElementById("applied-faces");
+      const label = document.getElementById("applied-faces-label");
+      if (textureEntities.length === 0) {
+        list.innerHTML = "";
+        label.style.display = "none";
+        return;
       }
+      label.style.display = "block";
+      list.innerHTML = textureEntities.map(t =>
+        '<div class="face-item">' +
+        '<span class="face-name">' + t.label + '</span>' +
+        '<button class="face-remove" onclick="removeSingleTexture(\'' + t.key + '\')">×</button>' +
+        '</div>'
+      ).join("");
+    }
+
+    function removeSingleTexture(key) {
+      const viewer = ws3d.viewer;
+      const idx = textureEntities.findIndex(t => t.key === key);
+      if (idx !== -1) {
+        viewer.entities.remove(textureEntities[idx].entity);
+        textureEntities.splice(idx, 1);
+      }
+      updateAppliedFacesList();
+      document.getElementById("tex-status").textContent = "면 텍스처 제거됨";
     }
 
     // --- Panel ---

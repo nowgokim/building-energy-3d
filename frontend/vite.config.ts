@@ -7,9 +7,10 @@ export default defineConfig({
   plugins: [react(), cesium(), tailwindcss()],
   server: {
     port: 5173,
+    host: true,
     proxy: {
-      "/api": "http://localhost:8000",
-      "/tiles": "http://localhost:8000",
+      "/api": process.env.API_HOST ?? "http://localhost:8000",
+      "/tiles": process.env.API_HOST ?? "http://localhost:8000",
     },
   },
   appType: "mpa",

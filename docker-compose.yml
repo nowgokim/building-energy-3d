@@ -60,6 +60,21 @@ services:
       DATABASE_URL: postgresql://postgres:${DB_PASSWORD:-devpassword}@db:5432/buildings
       REDIS_URL: redis://redis:6379
 
+  frontend:
+    image: node:20-alpine
+    working_dir: /app
+    command: sh -c "npm install && npm run dev"
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - frontend_node_modules:/app/node_modules
+    environment:
+      API_HOST: http://api:8000
+    depends_on:
+      - api
+
 volumes:
   pgdata:
   redisdata:
+  frontend_node_modules:

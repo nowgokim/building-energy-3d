@@ -25,10 +25,19 @@ def pick_building(
     lat: float = Query(..., description="Click latitude"),
     db: Session = Depends(get_db_dependency),
 ) -> dict:
-    """Find the nearest building to a click position using PostGIS KNN."""
+    """Find the nearest building to a click position using PostGIS KNN.
+
+    Uses ST_DWithin pre-filter (100m radius) to avoid picking far buildings,
+    then orders by KNN distance for the closest match.
+    """
     sql = text("""
         SELECT pnu, building_name
         FROM building_centroids
+        WHERE ST_DWithin(
+            centroid,
+            ST_SetSRID(ST_MakePoint(:lng, :lat), 4326),
+            0.001
+        )
         ORDER BY centroid <-> ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)
         LIMIT 1
     """)
