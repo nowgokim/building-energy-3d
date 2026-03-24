@@ -59,9 +59,11 @@ def health():
 # 라우터 등록
 from src.visualization.buildings import router as buildings_router
 from src.visualization.search import router as search_router
+from src.fire_safety.risk import router as fire_router
 
 app.include_router(buildings_router)
 app.include_router(search_router)
+app.include_router(fire_router)
 
 # 3D Tiles 정적 파일 서빙
 tiles_dir = settings.TILES_LOCAL_DIR

@@ -91,8 +91,20 @@
       position: absolute; top: 60px; left: 12px; z-index: 100;
       background: rgba(255,255,255,0.9); border: none; border-radius: 8px;
       padding: 8px 14px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-      cursor: pointer; font-size: 13px;
+      cursor: pointer; font-size: 13px; transition: background 0.2s, color 0.2s;
     }
+    #fire-btn {
+      position: absolute; top: 60px; left: 148px; z-index: 100;
+      background: rgba(255,255,255,0.9); border: none; border-radius: 8px;
+      padding: 8px 14px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      cursor: pointer; font-size: 13px; transition: background 0.2s, color 0.2s;
+    }
+    #fire-legend {
+      display: none; position: absolute; top: 100px; left: 148px; z-index: 100;
+      background: rgba(255,255,255,0.93); border-radius: 8px; padding: 8px 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.12); font-size: 11px; min-width: 180px;
+    }
+    #fire-legend .dot { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:4px; vertical-align:middle; }
   </style>
 </head>
 <body>
@@ -101,6 +113,18 @@
 
   <!-- Texture Overlay Button -->
   <button id="texture-btn" onclick="toggleTexturePanel()">🎨 텍스처</button>
+
+  <!-- Fire Risk Button -->
+  <button id="fire-btn" onclick="toggleFireMode()">🔥 화재위험</button>
+
+  <!-- Fire Risk Legend (fire mode 활성 시 표시) -->
+  <div id="fire-legend">
+    <div style="font-weight:600;margin-bottom:5px;color:#333">화재 위험도</div>
+    <div><span class="dot" style="background:#ff4444"></span>고위험 (60점 이상)</div>
+    <div style="margin:3px 0"><span class="dot" style="background:#ff8c00"></span>중위험 (35~59점)</div>
+    <div><span class="dot" style="background:#22c55e"></span>저위험 (35점 미만)</div>
+    <div id="fire-status" style="margin-top:6px;color:#888;font-size:10px;"></div>
+  </div>
 
   <!-- Texture Overlay Panel -->
   <div id="texture-panel">
@@ -146,6 +170,7 @@
       <dt>건축년도</dt><dd id="p-year">-</dd>
     </dl>
     <div id="p-energy-chart"></div>
+    <div id="p-fire-risk" style="display:none;border-top:1px solid #eee;padding-top:8px;margin-top:6px;"></div>
   </div>
 
   <!-- Stats -->
@@ -247,13 +272,113 @@
           })
           .then((r) => r && r.json())
           .then((detail) => {
-            if (detail) showPanel(detail);
+            if (detail) {
+              showPanel(detail);
+              fetchFireRisk(detail.properties.pnu);
+            }
           })
           .catch((e) => { if (e.name !== "AbortError") console.error(e); });
       }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
 
       console.log("VWorld 3D map ready + energy overlay active");
     };
+
+    // --- Fire Risk Layer ---
+    let firePointCollection = null;
+    let fireMode = false;
+
+    function fireRiskColor(grade) {
+      if (grade === 'HIGH')   return Cesium.Color.fromCssColorString('#ff4444').withAlpha(0.9);
+      if (grade === 'MEDIUM') return Cesium.Color.fromCssColorString('#ff8c00').withAlpha(0.75);
+      return Cesium.Color.fromCssColorString('#22c55e').withAlpha(0.7);
+    }
+
+    async function loadFireRiskLayer() {
+      const viewer = ws3d.viewer;
+      clearFireRiskLayer();
+      const rect = viewer.camera.computeViewRectangle();
+      if (!rect) return;
+      const west  = Cesium.Math.toDegrees(rect.west);
+      const south = Cesium.Math.toDegrees(rect.south);
+      const east  = Cesium.Math.toDegrees(rect.east);
+      const north = Cesium.Math.toDegrees(rect.north);
+      document.getElementById('fire-status').textContent = '로딩 중...';
+      try {
+        const resp = await fetch(`${API}/fire/risk?west=${west}&south=${south}&east=${east}&north=${north}`);
+        const data = await resp.json();
+        firePointCollection = viewer.scene.primitives.add(new Cesium.PointPrimitiveCollection());
+        data.features.forEach(f => {
+          firePointCollection.add({
+            position: Cesium.Cartesian3.fromDegrees(f.lng, f.lat, 5),
+            color: fireRiskColor(f.grade),
+            pixelSize: f.grade === 'HIGH' ? 10 : 7,
+            outlineColor: Cesium.Color.WHITE.withAlpha(0.4),
+            outlineWidth: 1,
+            heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND,
+          });
+        });
+        const highCnt = data.features.filter(f => f.grade === 'HIGH').length;
+        document.getElementById('fire-status').textContent =
+          `조회 ${data.count.toLocaleString()}건 · 고위험 ${highCnt.toLocaleString()}건`;
+      } catch(e) {
+        document.getElementById('fire-status').textContent = '로드 실패: ' + e.message;
+      }
+    }
+
+    function clearFireRiskLayer() {
+      if (firePointCollection) {
+        ws3d.viewer.scene.primitives.remove(firePointCollection);
+        firePointCollection = null;
+      }
+      document.getElementById('fire-status').textContent = '';
+    }
+
+    function toggleFireMode() {
+      fireMode = !fireMode;
+      const btn = document.getElementById('fire-btn');
+      const legend = document.getElementById('fire-legend');
+      if (fireMode) {
+        btn.textContent = '🔥 화재위험 ON';
+        btn.style.background = '#ff4444';
+        btn.style.color = '#fff';
+        legend.style.display = 'block';
+        loadFireRiskLayer();
+      } else {
+        btn.textContent = '🔥 화재위험';
+        btn.style.background = 'rgba(255,255,255,0.9)';
+        btn.style.color = '#333';
+        legend.style.display = 'none';
+        clearFireRiskLayer();
+      }
+    }
+
+    async function fetchFireRisk(pnu) {
+      try {
+        const resp = await fetch(`${API}/fire/risk/${pnu}`);
+        if (!resp.ok) { document.getElementById('p-fire-risk').style.display = 'none'; return; }
+        const risk = await resp.json();
+        const color = risk.risk_grade === 'HIGH' ? '#ff4444'
+                    : risk.risk_grade === 'MEDIUM' ? '#ff8c00' : '#22c55e';
+        const label = risk.risk_grade === 'HIGH' ? '고위험'
+                    : risk.risk_grade === 'MEDIUM' ? '중위험' : '저위험';
+        const el = document.getElementById('p-fire-risk');
+        el.style.display = 'block';
+        el.innerHTML =
+          '<div style="font-size:11px;color:#888;margin-bottom:4px">🔥 화재 위험도</div>' +
+          '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">' +
+          '<span style="background:' + color + ';color:#fff;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:bold">' + label + '</span>' +
+          '<span style="font-size:20px;font-weight:bold;color:' + color + '">' + risk.total_score +
+          '<span style="font-size:10px;color:#888;font-weight:normal">/100점</span></span>' +
+          '</div>' +
+          '<div style="font-size:10px;color:#777">' +
+          '구조 ' + risk.breakdown.structure.score + '점 · ' +
+          '연령 ' + risk.breakdown.age.score + '점 · ' +
+          '용도 ' + risk.breakdown.usage.score + '점 · ' +
+          '층수 ' + risk.breakdown.height.score + '점</div>';
+      } catch(_) {
+        document.getElementById('p-fire-risk').style.display = 'none';
+      }
+    }
 
     // --- Texture Overlay ---
     let textureEntities = [];
