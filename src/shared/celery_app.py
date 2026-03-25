@@ -24,4 +24,5 @@ celery.autodiscover_tasks([
     "src.data_ingestion",
     "src.tile_generation",
     "src.simulation",
+    "src.fire_safety",
 ])

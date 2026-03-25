@@ -1,14 +1,14 @@
 """
-화재 위험도 API 라우터 (Phase F0).
+화재 위험도 API 라우터 (Phase F0+F1).
 
-buildings_enriched 뷰의 구조/연령/용도/층수 데이터만으로
-건물별 화재 위험 점수(0-100)를 제공한다. 추가 데이터 수집 불필요.
+Phase F0: 건물별 위험 점수 (구조/연령/용도/층수)
+Phase F1: 인접 그래프, 소방서 위치, 클러스터, 대응 커버리지
 """
 import logging
 import re
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -155,4 +155,220 @@ def get_fire_stats(
             r.risk_grade: {"count": int(r.cnt), "avg_score": float(r.avg_score)}
             for r in rows
         }
+    }
+
+
+# ── Phase F1 엔드포인트 ──────────────────────────────────────────────────────
+
+
+@router.get("/stations")
+def list_fire_stations(
+    west:  Optional[float] = Query(None),
+    south: Optional[float] = Query(None),
+    east:  Optional[float] = Query(None),
+    north: Optional[float] = Query(None),
+    db: Session = Depends(get_db_dependency),
+) -> dict:
+    """소방서 / 119안전센터 위치 목록."""
+    conditions: list[str] = []
+    params: dict = {}
+
+    if all(v is not None for v in [west, south, east, north]):
+        conditions.append(
+            "ST_Intersects(geom, ST_MakeEnvelope(:west, :south, :east, :north, 4326))"
+        )
+        params.update({"west": west, "south": south, "east": east, "north": north})
+
+    where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+    sql = text(f"""
+        SELECT id, name, station_type, district,
+               ST_X(geom) AS lng, ST_Y(geom) AS lat
+        FROM fire_stations
+        {where}
+        ORDER BY district
+    """)
+    rows = db.execute(sql, params).fetchall()
+    return {
+        "count": len(rows),
+        "stations": [
+            {
+                "id": r.id,
+                "name": r.name,
+                "type": r.station_type,
+                "district": r.district,
+                "lng": float(r.lng),
+                "lat": float(r.lat),
+            }
+            for r in rows
+        ],
+    }
+
+
+@router.get("/clusters")
+def list_clusters(
+    west:  Optional[float] = Query(None),
+    south: Optional[float] = Query(None),
+    east:  Optional[float] = Query(None),
+    north: Optional[float] = Query(None),
+    risk_level: Optional[str] = Query(None, description="HIGH | MEDIUM"),
+    db: Session = Depends(get_db_dependency),
+) -> dict:
+    """고위험 클러스터 목록 (GeoJSON Polygon)."""
+    conditions: list[str] = []
+    params: dict = {}
+
+    if all(v is not None for v in [west, south, east, north]):
+        conditions.append(
+            "ST_Intersects(geom, ST_MakeEnvelope(:west, :south, :east, :north, 4326))"
+        )
+        params.update({"west": west, "south": south, "east": east, "north": north})
+
+    if risk_level:
+        conditions.append("risk_level = :risk_level")
+        params["risk_level"] = risk_level.upper()
+
+    where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+    sql = text(f"""
+        SELECT
+            cluster_id,
+            risk_level,
+            building_count,
+            avg_risk_score,
+            ST_AsGeoJSON(geom) AS geojson
+        FROM fire_risk_clusters
+        {where}
+        ORDER BY avg_risk_score DESC
+        LIMIT 500
+    """)
+    rows = db.execute(sql, params).fetchall()
+    import json
+    return {
+        "count": len(rows),
+        "clusters": [
+            {
+                "cluster_id": r.cluster_id,
+                "risk_level": r.risk_level,
+                "building_count": r.building_count,
+                "avg_score": round(float(r.avg_risk_score), 1),
+                "geometry": json.loads(r.geojson) if r.geojson else None,
+            }
+            for r in rows
+        ],
+    }
+
+
+@router.get("/coverage/{pnu}")
+def get_station_coverage(
+    pnu: str,
+    db: Session = Depends(get_db_dependency),
+) -> dict:
+    """건물 PNU로부터 가장 가까운 소방서 응답시간 추정."""
+    if not re.match(r"^\d{19,25}$", pnu):
+        raise HTTPException(status_code=400, detail="Invalid PNU format")
+
+    sql = text("""
+        WITH bldg AS (
+            SELECT ST_Centroid(geom) AS pt
+            FROM buildings_enriched
+            WHERE pnu = :pnu AND geom IS NOT NULL
+            LIMIT 1
+        )
+        SELECT
+            fs.id,
+            fs.name,
+            fs.district,
+            fs.station_type,
+            ST_Distance(b.pt::geography, fs.geom::geography) AS dist_m,
+            ST_X(fs.geom) AS slng,
+            ST_Y(fs.geom) AS slat
+        FROM bldg b
+        CROSS JOIN LATERAL (
+            SELECT * FROM fire_stations
+            ORDER BY geom <-> b.pt
+            LIMIT 3
+        ) fs
+        ORDER BY dist_m
+    """)
+    rows = db.execute(sql, {"pnu": pnu}).fetchall()
+    if not rows:
+        raise HTTPException(status_code=404, detail=f"Building {pnu} not found")
+
+    def est_time(dist_m: float) -> float:
+        """소방차 평균 속도 30km/h (도심 기준) 응답시간 추정(분)."""
+        return round(dist_m / (30000 / 60), 1)
+
+    return {
+        "pnu": pnu,
+        "nearest_stations": [
+            {
+                "id": r.id,
+                "name": r.name,
+                "district": r.district,
+                "type": r.station_type,
+                "distance_m": round(float(r.dist_m), 0),
+                "est_response_min": est_time(float(r.dist_m)),
+                "lng": float(r.slng),
+                "lat": float(r.slat),
+            }
+            for r in rows
+        ],
+    }
+
+
+@router.post("/adjacency/build")
+def trigger_adjacency_build(
+    background_tasks: BackgroundTasks,
+    sgg_code: Optional[str] = Query(None, description="자치구 SGG 코드 (없으면 전체)"),
+    dist_m: float = Query(25.0, description="인접 판단 거리(m)"),
+) -> dict:
+    """인접 건물 그래프 계산 Celery 태스크 트리거."""
+    from src.fire_safety.tasks import build_adjacency_district, build_all_adjacency
+
+    if sgg_code:
+        job = build_adjacency_district.delay(sgg_code, dist_m)
+        return {"status": "queued", "task_id": job.id, "sgg_code": sgg_code}
+    else:
+        jobs = build_all_adjacency.delay(dist_m)
+        return {"status": "queued", "task_id": jobs.id, "sgg_codes": "all"}
+
+
+@router.post("/clusters/compute")
+def trigger_cluster_compute(
+    eps_m: float = Query(100.0, description="DBSCAN epsilon (m)"),
+    min_points: int = Query(5, description="최소 클러스터 건물 수"),
+    min_score: float = Query(60.0, description="포함 최소 위험 점수"),
+) -> dict:
+    """고위험 클러스터 ST_ClusterDBSCAN 계산 트리거."""
+    from src.fire_safety.tasks import compute_fire_clusters
+
+    job = compute_fire_clusters.delay(eps_m, min_points, min_score)
+    return {"status": "queued", "task_id": job.id}
+
+
+@router.get("/adjacency/{pnu}")
+def get_neighbors(
+    pnu: str,
+    db: Session = Depends(get_db_dependency),
+) -> dict:
+    """특정 건물의 인접 건물 목록 (화재 확산 시뮬레이션용)."""
+    if not re.match(r"^\d{19,25}$", pnu):
+        raise HTTPException(status_code=400, detail="Invalid PNU format")
+
+    sql = text("""
+        SELECT
+            CASE WHEN source_pnu = :pnu THEN target_pnu ELSE source_pnu END AS neighbor_pnu,
+            distance_m
+        FROM building_adjacency
+        WHERE source_pnu = :pnu OR target_pnu = :pnu
+        ORDER BY distance_m
+        LIMIT 50
+    """)
+    rows = db.execute(sql, {"pnu": pnu}).fetchall()
+    return {
+        "pnu": pnu,
+        "neighbor_count": len(rows),
+        "neighbors": [
+            {"pnu": r.neighbor_pnu, "distance_m": round(float(r.distance_m), 1)}
+            for r in rows
+        ],
     }
