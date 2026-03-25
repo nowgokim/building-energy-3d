@@ -237,8 +237,8 @@ def list_clusters(
             ST_AsGeoJSON(geom) AS geojson
         FROM fire_risk_clusters
         {where}
-        ORDER BY avg_risk_score DESC
-        LIMIT 500
+        ORDER BY building_count DESC
+        LIMIT 2000
     """)
     rows = db.execute(sql, params).fetchall()
     import json

@@ -66,7 +66,7 @@
       padding: 12px 24px; border-radius: 8px; }
 
     #texture-panel {
-      position: absolute; top: 108px; left: 12px; z-index: 100;
+      position: absolute; top: 144px; left: 12px; z-index: 100;
       background: rgba(255,255,255,0.95); border-radius: 8px; padding: 10px;
       box-shadow: 0 2px 12px rgba(0,0,0,0.15); width: 210px; display: none;
       font-size: 12px;
@@ -100,19 +100,19 @@
       cursor: pointer; font-size: 13px; transition: background 0.2s, color 0.2s;
     }
     #cluster-btn {
-      position: absolute; top: 60px; left: 264px; z-index: 100;
+      position: absolute; top: 96px; left: 12px; z-index: 100;
       background: rgba(255,255,255,0.9); border: none; border-radius: 8px;
       padding: 8px 14px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);
       cursor: pointer; font-size: 13px; transition: background 0.2s, color 0.2s;
     }
     #station-btn {
-      position: absolute; top: 60px; left: 380px; z-index: 100;
+      position: absolute; top: 96px; left: 172px; z-index: 100;
       background: rgba(255,255,255,0.9); border: none; border-radius: 8px;
       padding: 8px 14px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);
       cursor: pointer; font-size: 13px; transition: background 0.2s, color 0.2s;
     }
     #fire-legend {
-      display: none; position: absolute; top: 100px; left: 148px; z-index: 100;
+      display: none; position: absolute; top: 136px; left: 148px; z-index: 100;
       background: rgba(255,255,255,0.93); border-radius: 8px; padding: 8px 12px;
       box-shadow: 0 2px 8px rgba(0,0,0,0.12); font-size: 11px; min-width: 180px;
     }
@@ -220,8 +220,8 @@
     map.setOption({
       mapId: "vmap",
       initPosition: new vw.CameraPosition(
-        new vw.CoordZ(126.935, 37.555, 800),
-        new vw.Direction(30, -35, 0)
+        new vw.CoordZ(126.978, 37.560, 12000),
+        new vw.Direction(0, -60, 0)
       ),
       logo: true,
       navigation: true,
@@ -314,6 +314,16 @@
     async function loadFireRiskLayer() {
       const viewer = ws3d.viewer;
       clearFireRiskLayer();
+      // 너무 높이서 조회하면 점이 너무 작음 → 고도 5km 이상이면 카메라 이동 완료 후 재시도
+      const camHeight = viewer.camera.positionCartographic.height;
+      if (camHeight > 5000) {
+        document.getElementById('fire-status').textContent = '더 가까이 확대하면 건물별 위험도를 표시합니다';
+        const removeListener = viewer.camera.moveEnd.addEventListener(() => {
+          removeListener();
+          if (fireMode) loadFireRiskLayer();
+        });
+        return;
+      }
       const rect = viewer.camera.computeViewRectangle();
       if (!rect) return;
       const west  = Cesium.Math.toDegrees(rect.west);
@@ -356,29 +366,27 @@
     let clusterMode = false;
 
     function clusterRiskColor(level) {
-      if (level === 'HIGH')   return Cesium.Color.fromCssColorString('#ff4444').withAlpha(0.35);
-      if (level === 'MEDIUM') return Cesium.Color.fromCssColorString('#ff8c00').withAlpha(0.25);
-      return Cesium.Color.fromCssColorString('#22c55e').withAlpha(0.2);
+      if (level === 'HIGH')   return Cesium.Color.fromCssColorString('#ff2222').withAlpha(0.50);
+      if (level === 'MEDIUM') return Cesium.Color.fromCssColorString('#ff8c00').withAlpha(0.40);
+      return Cesium.Color.fromCssColorString('#22c55e').withAlpha(0.35);
     }
 
     async function loadClusters() {
       const viewer = ws3d.viewer;
       clearClusters();
-      const rect = viewer.camera.computeViewRectangle();
-      if (!rect) return;
-      const west  = Cesium.Math.toDegrees(rect.west);
-      const south = Cesium.Math.toDegrees(rect.south);
-      const east  = Cesium.Math.toDegrees(rect.east);
-      const north = Cesium.Math.toDegrees(rect.north);
       try {
-        const resp = await fetch(`${API}/fire/clusters?west=${west}&south=${south}&east=${east}&north=${north}`);
+        // 클러스터는 991개뿐 → bbox 필터 없이 전체 로드
+        const resp = await fetch(`${API}/fire/clusters`);
         const data = await resp.json();
         data.clusters.forEach(c => {
           if (!c.geometry || !c.geometry.coordinates) return;
-          // ConvexHull은 Polygon
-          const coords = c.geometry.type === 'Polygon'
-            ? c.geometry.coordinates[0]
-            : (c.geometry.type === 'Point' ? null : null);
+          // ConvexHull 결과: Polygon (다수) 또는 LineString (2건) 또는 Point (1건)
+          let coords = null;
+          if (c.geometry.type === 'Polygon') {
+            coords = c.geometry.coordinates[0];
+          } else if (c.geometry.type === 'MultiPolygon') {
+            coords = c.geometry.coordinates[0][0];
+          }
           if (!coords || coords.length < 3) return;
           const positions = Cesium.Cartesian3.fromDegreesArray(coords.flatMap(pt => [pt[0], pt[1]]));
           const entity = viewer.entities.add({
@@ -387,10 +395,10 @@
               hierarchy: new Cesium.PolygonHierarchy(positions),
               material: clusterRiskColor(c.risk_level),
               outline: true,
-              outlineColor: clusterRiskColor(c.risk_level).withAlpha(0.9),
-              outlineWidth: 2,
-              height: 1,
-              perPositionHeight: false,
+              outlineColor: clusterRiskColor(c.risk_level).withAlpha(0.95),
+              outlineWidth: 3,
+              height: 0,
+              extrudedHeight: 120,
             },
           });
           clusterEntities.push(entity);
@@ -431,30 +439,27 @@
     async function loadStations() {
       const viewer = ws3d.viewer;
       clearStations();
-      const rect = viewer.camera.computeViewRectangle();
-      if (!rect) return;
-      const west  = Cesium.Math.toDegrees(rect.west);
-      const south = Cesium.Math.toDegrees(rect.south);
-      const east  = Cesium.Math.toDegrees(rect.east);
-      const north = Cesium.Math.toDegrees(rect.north);
       try {
-        const resp = await fetch(`${API}/fire/stations?west=${west}&south=${south}&east=${east}&north=${north}`);
+        // 소방서는 25개뿐 → bbox 없이 전체 로드
+        const resp = await fetch(`${API}/fire/stations`);
         const data = await resp.json();
         data.stations.forEach(s => {
           const entity = viewer.entities.add({
             name: s.name,
             position: Cesium.Cartesian3.fromDegrees(s.lng, s.lat, 10),
             billboard: {
-              image: 'data:image/svg+xml;base64,' + btoa(
+              image: 'data:image/svg+xml,' + encodeURIComponent(
                 `<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36">` +
-                `<circle cx="18" cy="18" r="16" fill="#ff4444" stroke="#fff" stroke-width="2"/>` +
-                `<text x="18" y="23" text-anchor="middle" fill="#fff" font-size="16" font-family="sans-serif">🚒</text>` +
+                `<circle cx="18" cy="18" r="16" fill="#dc2626" stroke="#fff" stroke-width="2.5"/>` +
+                `<text x="18" y="14" text-anchor="middle" fill="#fff" font-size="9" font-family="sans-serif" font-weight="bold">소방</text>` +
+                `<text x="18" y="25" text-anchor="middle" fill="#fff" font-size="9" font-family="sans-serif" font-weight="bold">서</text>` +
                 `</svg>`
               ),
-              width: 36,
-              height: 36,
+              width: 40,
+              height: 40,
               verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
               heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND,
+              disableDepthTestDistance: Number.POSITIVE_INFINITY,
             },
             label: {
               text: s.name,
