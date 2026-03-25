@@ -1114,12 +1114,18 @@
         });
 
         const countEl = document.getElementById('filter-result-count');
+        const total = data.total_count ?? data.count;
+        const isCapped = data.count >= 1000 && total > data.count;
         countEl.innerHTML =
-          `<b style="color:#4a9eff">${data.count.toLocaleString()}건</b> 조회됨` +
-          (data.count >= 1000 ? ' <span style="color:#f59e0b">(최대 1000건)</span>' : '');
-        // floating badge (패널 닫혀도 결과 수 표시)
+          `<b style="color:#4a9eff">${data.count.toLocaleString()}건</b> 표시` +
+          (isCapped
+            ? ` <span style="color:#f59e0b">(전체 ${total.toLocaleString()}건 중 1,000건)</span>`
+            : ` / 총 ${total.toLocaleString()}건`);
+        // floating badge (패널 닫혔을 때 결과 수 표시)
         const badge = document.getElementById('filter-result-badge');
-        badge.textContent = `🔍 ${data.count.toLocaleString()}건 조회됨`;
+        badge.textContent = isCapped
+          ? `🔍 ${total.toLocaleString()}건 (1,000건 표시)`
+          : `🔍 ${total.toLocaleString()}건 조회됨`;
         badge.style.display = 'block';
       } catch(e) {
         document.getElementById('filter-result-count').textContent = '오류: ' + e.message;

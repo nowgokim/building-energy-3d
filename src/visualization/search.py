@@ -82,8 +82,9 @@ def _build_filter_query(
 
     if len(filters.bbox) == 4:
         west, south, east, north = filters.bbox
+        # centroid 기반 필터: 폴리곤 경계 교차로 인한 bbox 외부 누수 방지
         conditions.append(
-            "ST_Intersects(b.geom, ST_MakeEnvelope(:west, :south, :east, :north, 4326))"
+            "ST_Within(ST_Centroid(b.geom), ST_MakeEnvelope(:west, :south, :east, :north, 4326))"
         )
         params.update({"west": west, "south": south, "east": east, "north": north})
 
@@ -94,8 +95,8 @@ def _build_filter_query(
     return where_clause, params
 
 
-def _filtered_rows(db: Session, filters: FilterRequest) -> list:
-    """Execute a filtered query and return row objects."""
+def _filtered_rows(db: Session, filters: FilterRequest) -> tuple[list, int]:
+    """Execute a filtered query. Returns (rows, total_count)."""
     where_clause, params = _build_filter_query(filters)
 
     sql = text(f"""
@@ -114,12 +115,22 @@ def _filtered_rows(db: Session, filters: FilterRequest) -> list:
             ST_X(ST_Centroid(b.geom)) AS lng,
             ST_Y(ST_Centroid(b.geom)) AS lat
         FROM buildings_enriched b
-        LEFT JOIN energy_results er ON b.pnu = er.pnu
+        LEFT JOIN LATERAL (
+            SELECT total_energy FROM energy_results WHERE pnu = b.pnu LIMIT 1
+        ) er ON true
         {where_clause}
         LIMIT 1000
     """)
+    rows = db.execute(sql, params).fetchall()
 
-    return db.execute(sql, params).fetchall()
+    # 1,000건 상한에 걸렸을 때만 별도 COUNT 조회
+    if len(rows) == 1000:
+        count_sql = text(f"SELECT COUNT(*) FROM buildings_enriched b {where_clause}")
+        total = db.execute(count_sql, params).scalar() or 1000
+    else:
+        total = len(rows)
+
+    return rows, total
 
 
 # ---------------------------------------------------------------------------
@@ -131,9 +142,9 @@ def get_filter_options(db: Session = Depends(get_db_dependency)) -> dict:
     """Return distinct filter values available in the database."""
     sql = text("""
         SELECT
-            array_agg(DISTINCT usage_type   ORDER BY usage_type)   FILTER (WHERE usage_type   IS NOT NULL) AS usage_types,
-            array_agg(DISTINCT vintage_class ORDER BY vintage_class) FILTER (WHERE vintage_class IS NOT NULL) AS vintage_classes,
-            array_agg(DISTINCT energy_grade  ORDER BY energy_grade)  FILTER (WHERE energy_grade  IS NOT NULL) AS energy_grades
+            array_agg(DISTINCT usage_type   ORDER BY usage_type)   FILTER (WHERE usage_type   IS NOT NULL AND usage_type   != '') AS usage_types,
+            array_agg(DISTINCT vintage_class ORDER BY vintage_class) FILTER (WHERE vintage_class IS NOT NULL AND vintage_class != '') AS vintage_classes,
+            array_agg(DISTINCT energy_grade  ORDER BY energy_grade)  FILTER (WHERE energy_grade  IS NOT NULL AND energy_grade  != '') AS energy_grades
         FROM buildings_enriched
     """)
     row = db.execute(sql).fetchone()
@@ -192,8 +203,8 @@ def filter_buildings(
     db: Session = Depends(get_db_dependency),
 ) -> dict:
     """Filter buildings by energy grades, vintage classes, usage types, and bbox."""
-    rows = _filtered_rows(db, filters)
-    logger.info("Filter returned %d buildings", len(rows))
+    rows, total_count = _filtered_rows(db, filters)
+    logger.info("Filter returned %d / %d buildings", len(rows), total_count)
 
     features = []
     for r in rows:
@@ -213,7 +224,7 @@ def filter_buildings(
             "lat": float(r.lat) if r.lat else None,
         })
 
-    return {"count": len(features), "buildings": features}
+    return {"count": len(features), "total_count": total_count, "buildings": features}
 
 
 @router.get("/filter/export")
