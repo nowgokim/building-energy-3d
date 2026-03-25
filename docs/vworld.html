@@ -66,7 +66,7 @@
       padding: 12px 24px; border-radius: 8px; }
 
     #texture-panel {
-      position: absolute; top: 144px; left: 12px; z-index: 100;
+      position: absolute; top: 206px; left: 12px; z-index: 100;
       background: rgba(255,255,255,0.95); border-radius: 8px; padding: 10px;
       box-shadow: 0 2px 12px rgba(0,0,0,0.15); width: 210px; display: none;
       font-size: 12px;
@@ -87,34 +87,22 @@
     .face-item { display: flex; align-items: center; gap: 4px; padding: 2px 0; border-bottom: 1px solid #eee; }
     .face-item .face-name { flex: 1; font-size: 10px; color: #555; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .face-item .face-remove { background: #ff5252; color: #fff; border: none; border-radius: 3px; padding: 1px 5px; cursor: pointer; font-size: 10px; flex-shrink: 0; }
-    #texture-btn {
-      position: absolute; top: 60px; left: 12px; z-index: 100;
-      background: rgba(255,255,255,0.9); border: none; border-radius: 8px;
-      padding: 8px 14px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-      cursor: pointer; font-size: 13px; transition: background 0.2s, color 0.2s;
+    /* 좌측 세로 버튼 그룹 — 겹침 없는 단일 열 */
+    .map-btn {
+      position: absolute; left: 12px; z-index: 100;
+      background: rgba(255,255,255,0.92); border: none; border-radius: 8px;
+      padding: 7px 13px; box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+      cursor: pointer; font-size: 12px; transition: background 0.2s, color 0.2s;
+      white-space: nowrap;
     }
-    #fire-btn {
-      position: absolute; top: 60px; left: 148px; z-index: 100;
-      background: rgba(255,255,255,0.9); border: none; border-radius: 8px;
-      padding: 8px 14px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-      cursor: pointer; font-size: 13px; transition: background 0.2s, color 0.2s;
-    }
-    #cluster-btn {
-      position: absolute; top: 96px; left: 12px; z-index: 100;
-      background: rgba(255,255,255,0.9); border: none; border-radius: 8px;
-      padding: 8px 14px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-      cursor: pointer; font-size: 13px; transition: background 0.2s, color 0.2s;
-    }
-    #station-btn {
-      position: absolute; top: 96px; left: 172px; z-index: 100;
-      background: rgba(255,255,255,0.9); border: none; border-radius: 8px;
-      padding: 8px 14px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-      cursor: pointer; font-size: 13px; transition: background 0.2s, color 0.2s;
-    }
+    #texture-btn { top: 60px; }
+    #fire-btn    { top: 96px; }
+    #cluster-btn { top: 132px; }
+    #station-btn { top: 168px; }
     #fire-legend {
-      display: none; position: absolute; top: 136px; left: 148px; z-index: 100;
+      display: none; position: absolute; top: 200px; left: 12px; z-index: 100;
       background: rgba(255,255,255,0.93); border-radius: 8px; padding: 8px 12px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.12); font-size: 11px; min-width: 180px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.12); font-size: 11px; min-width: 185px;
     }
     #fire-legend .dot { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:4px; vertical-align:middle; }
   </style>
@@ -123,17 +111,11 @@
   <div id="vmap"></div>
   <div id="loading" class="loading">3D 지도 로딩 중...</div>
 
-  <!-- Texture Overlay Button -->
-  <button id="texture-btn" onclick="toggleTexturePanel()">🎨 텍스처</button>
-
-  <!-- Fire Risk Button -->
-  <button id="fire-btn" onclick="toggleFireMode()">🔥 화재위험</button>
-
-  <!-- Cluster Button -->
-  <button id="cluster-btn" onclick="toggleClusters()">🗺 고위험클러스터</button>
-
-  <!-- Fire Station Button -->
-  <button id="station-btn" onclick="toggleStations()">🚒 소방서</button>
+  <!-- 좌측 세로 버튼 그룹 -->
+  <button id="texture-btn" class="map-btn" onclick="toggleTexturePanel()">🎨 면 텍스처</button>
+  <button id="fire-btn"    class="map-btn" onclick="toggleFireMode()">🔥 화재위험도</button>
+  <button id="cluster-btn" class="map-btn" onclick="toggleClusters()" title="화재 위험도 60점 이상 건물이 반경 100m 내 밀집된 구역">🔴 화재 취약 밀집구역</button>
+  <button id="station-btn" class="map-btn" onclick="toggleStations()">🚒 소방서 위치</button>
 
   <!-- Fire Risk Legend (fire mode 활성 시 표시) -->
   <div id="fire-legend">
@@ -420,13 +402,13 @@
       clusterMode = !clusterMode;
       const btn = document.getElementById('cluster-btn');
       if (clusterMode) {
-        btn.textContent = '🗺 클러스터 ON';
+        btn.textContent = '🔴 밀집구역 ON';
         btn.style.background = '#9333ea';
         btn.style.color = '#fff';
         loadClusters();
       } else {
-        btn.textContent = '🗺 고위험클러스터';
-        btn.style.background = 'rgba(255,255,255,0.9)';
+        btn.textContent = '🔴 화재 취약 밀집구역';
+        btn.style.background = 'rgba(255,255,255,0.92)';
         btn.style.color = '#333';
         clearClusters();
       }
@@ -496,8 +478,8 @@
         btn.style.color = '#fff';
         loadStations();
       } else {
-        btn.textContent = '🚒 소방서';
-        btn.style.background = 'rgba(255,255,255,0.9)';
+        btn.textContent = '🚒 소방서 위치';
+        btn.style.background = 'rgba(255,255,255,0.92)';
         btn.style.color = '#333';
         clearStations();
       }
@@ -508,14 +490,14 @@
       const btn = document.getElementById('fire-btn');
       const legend = document.getElementById('fire-legend');
       if (fireMode) {
-        btn.textContent = '🔥 화재위험 ON';
+        btn.textContent = '🔥 화재위험도 ON';
         btn.style.background = '#ff4444';
         btn.style.color = '#fff';
         legend.style.display = 'block';
         loadFireRiskLayer();
       } else {
-        btn.textContent = '🔥 화재위험';
-        btn.style.background = 'rgba(255,255,255,0.9)';
+        btn.textContent = '🔥 화재위험도';
+        btn.style.background = 'rgba(255,255,255,0.92)';
         btn.style.color = '#333';
         legend.style.display = 'none';
         clearFireRiskLayer();
@@ -611,8 +593,8 @@
       textureMode = false;
       document.getElementById("texture-panel").style.display = "none";
       const btn = document.getElementById("texture-btn");
-      btn.textContent = "🎨 텍스처";
-      btn.style.background = "rgba(255,255,255,0.9)";
+      btn.textContent = "🎨 면 텍스처";
+      btn.style.background = "rgba(255,255,255,0.92)";
       btn.style.color = "#333";
     }
 
@@ -622,13 +604,13 @@
       const btn = document.getElementById("texture-btn");
       if (textureMode) {
         panel.style.display = "block";
-        btn.textContent = "🎨 텍스처 ON";
+        btn.textContent = "🎨 면 텍스처 ON";
         btn.style.background = "#4a9eff";
         btn.style.color = "#fff";
       } else {
         panel.style.display = "none";
-        btn.textContent = "🎨 텍스처";
-        btn.style.background = "rgba(255,255,255,0.9)";
+        btn.textContent = "🎨 면 텍스처";
+        btn.style.background = "rgba(255,255,255,0.92)";
         btn.style.color = "#333";
       }
     }
