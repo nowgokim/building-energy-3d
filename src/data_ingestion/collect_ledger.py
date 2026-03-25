@@ -273,10 +273,13 @@ def collect_seoul_ledger(api_key: str, db_url: str, ledger_type: str = "recap") 
         try:
             import PublicDataReader as pdr
             bdong_codes_df = pdr.code_bdong()
-            gu_bdongs = bdong_codes_df[bdong_codes_df["시군구코드"] == sigungu_code]
-            if "삭제일자" in gu_bdongs.columns:
-                gu_bdongs = gu_bdongs[gu_bdongs["삭제일자"].isna()]
-            bdong_list = gu_bdongs["법정동코드"].unique().tolist()
+            gu_bdongs = bdong_codes_df[
+                (bdong_codes_df["시군구코드"] == sigungu_code) &
+                (bdong_codes_df["말소일자"] == "") &           # 활성 법정동 (빈 문자열 = 유효)
+                (~bdong_codes_df["법정동코드"].str.endswith("00000"))  # 시군구 레벨 코드 제외
+            ]
+            # API bjdongCd = 법정동코드 마지막 5자리
+            bdong_list = gu_bdongs["법정동코드"].str[-5:].unique().tolist()
         except Exception:
             logger.warning("Failed to get 법정동 codes for %s, skipping", sigungu_code)
             failed.append(sigungu_code)

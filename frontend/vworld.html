@@ -115,6 +115,13 @@
       background: rgba(124,58,237,0.9); color: #fff;
       padding: 4px 10px; border-radius: 6px; font-size: 11px; white-space: nowrap;
     }
+    /* 필터 결과 floating badge — 패널 닫혔을 때만 보임 */
+    #filter-result-badge {
+      display: none; position: absolute; top: 204px; left: 145px; z-index: 99;
+      background: rgba(74,158,255,0.93); color: #fff;
+      padding: 4px 10px; border-radius: 6px; font-size: 11px; white-space: nowrap;
+      cursor: pointer; pointer-events: none;
+    }
 
     /* 필터 패널 — 버튼 열 오른쪽에 배치 */
     #filter-panel {
@@ -157,7 +164,9 @@
   <button id="mode-btn"    class="map-btn" onclick="toggle2DMode()">🗺 2D 보기</button>
 
   <!-- 영역 선택 안내 -->
-  <div id="area-status-bar">첫 번째 꼭지점을 클릭하세요</div>
+  <div id="area-status-bar">첫 번째 꼭지점을 클릭하세요 (우클릭: 취소)</div>
+  <!-- 필터 결과 floating badge -->
+  <div id="filter-result-badge" onclick="toggleFilterPanel()" title="클릭하면 필터 패널 열기"></div>
 
   <!-- 필터 패널 -->
   <div id="filter-panel">
@@ -184,11 +193,14 @@
     <div class="f-section">
       <div class="f-title">영역 조건</div>
       <label style="display:flex;align-items:center;gap:5px;font-size:11px;margin-bottom:3px;cursor:pointer">
-        <input type="checkbox" id="filter-use-bbox"> 선택 영역 적용
+        <input type="checkbox" id="filter-use-bbox" disabled
+          onchange="if(this.checked) document.getElementById('filter-use-viewport').checked=false">
+        <span id="filter-bbox-label" style="color:#aaa">선택 영역 적용 (영역 미지정)</span>
       </label>
       <div id="filter-bbox-desc" style="font-size:10px;color:#aaa;margin-left:18px;margin-bottom:3px">📐 영역 선택 버튼으로 지정</div>
       <label style="display:flex;align-items:center;gap:5px;font-size:11px;cursor:pointer">
-        <input type="checkbox" id="filter-use-viewport"> 현재 화면 범위
+        <input type="checkbox" id="filter-use-viewport"
+          onchange="if(this.checked) document.getElementById('filter-use-bbox').checked=false"> 현재 화면 범위
       </label>
     </div>
 
@@ -289,7 +301,7 @@
     const selectedVintage = new Set();
     const selectedUsage   = new Set();
     let areaBbox = null;
-    let areaPreviewEntity = null;
+    let areaPreviewEntities = [];   // [fillEntity, outlineEntity]
     let areaSelectMode = false;
     let areaClickStart = null;
     let areaSelectHandler = null;
@@ -385,6 +397,7 @@
     // --- Fire Risk Layer ---
     let firePointCollection = null;
     let fireMode = false;
+    let fireMoveEndRemover = null;
 
     function fireRiskColor(grade) {
       if (grade === 'HIGH')   return Cesium.Color.fromCssColorString('#ff4444').withAlpha(0.9);
@@ -393,14 +406,16 @@
     }
 
     async function loadFireRiskLayer() {
+      if (!ws3d?.viewer) return;
       const viewer = ws3d.viewer;
       clearFireRiskLayer();
       // 너무 높이서 조회하면 점이 너무 작음 → 고도 5km 이상이면 카메라 이동 완료 후 재시도
       const camHeight = viewer.camera.positionCartographic.height;
       if (camHeight > 5000) {
         document.getElementById('fire-status').textContent = '더 가까이 확대하면 건물별 위험도를 표시합니다';
-        const removeListener = viewer.camera.moveEnd.addEventListener(() => {
-          removeListener();
+        if (fireMoveEndRemover) { fireMoveEndRemover(); fireMoveEndRemover = null; }
+        fireMoveEndRemover = viewer.camera.moveEnd.addEventListener(() => {
+          fireMoveEndRemover = null;
           if (fireMode) loadFireRiskLayer();
         });
         return;
@@ -416,7 +431,7 @@
         const resp = await fetch(`${API}/fire/risk?west=${west}&south=${south}&east=${east}&north=${north}`);
         const data = await resp.json();
         firePointCollection = viewer.scene.primitives.add(new Cesium.PointPrimitiveCollection());
-        data.features.forEach(f => {
+        (data.features || []).forEach(f => {
           firePointCollection.add({
             position: Cesium.Cartesian3.fromDegrees(f.lng, f.lat, 5),
             color: fireRiskColor(f.grade),
@@ -426,7 +441,7 @@
             heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND,
           });
         });
-        const highCnt = data.features.filter(f => f.grade === 'HIGH').length;
+        const highCnt = (data.features || []).filter(f => f.grade === 'HIGH').length;
         document.getElementById('fire-status').textContent =
           `조회 ${data.count.toLocaleString()}건 · 고위험 ${highCnt.toLocaleString()}건`;
       } catch(e) {
@@ -453,13 +468,14 @@
     }
 
     async function loadClusters() {
+      if (!ws3d?.viewer) return;
       const viewer = ws3d.viewer;
       clearClusters();
       try {
         // 클러스터는 991개뿐 → bbox 필터 없이 전체 로드
         const resp = await fetch(`${API}/fire/clusters`);
         const data = await resp.json();
-        data.clusters.forEach(c => {
+        (data.clusters || []).forEach(c => {
           if (!c.geometry || !c.geometry.coordinates) return;
           // ConvexHull 결과: Polygon (다수) 또는 LineString (2건) 또는 Point (1건)
           let coords = null;
@@ -1008,9 +1024,10 @@
         container.innerHTML = '<span class="f-chip no-data">데이터 없음</span>';
         return;
       }
-      container.innerHTML = values.map(v =>
-        `<span class="f-chip" data-value="${v}" onclick="toggleChip(this,'${containerId}')">${v}</span>`
-      ).join('');
+      container.innerHTML = values.map(v => {
+        const safe = v.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        return `<span class="f-chip" data-value="${safe}" onclick="toggleChip(this,'${containerId}')">${v}</span>`;
+      }).join('');
     }
 
     function toggleChip(el, containerId) {
@@ -1027,8 +1044,10 @@
       filterPanelVisible = !filterPanelVisible;
       const panel = document.getElementById('filter-panel');
       const btn   = document.getElementById('filter-btn');
+      const badge = document.getElementById('filter-result-badge');
       if (filterPanelVisible) {
         panel.style.display = 'block';
+        badge.style.display = 'none';  // 패널 열리면 badge 숨김 (클릭 간섭 방지)
         btn.textContent = '🔍 필터 ON';
         btn.style.background = '#4a9eff';
         btn.style.color = '#fff';
@@ -1041,7 +1060,9 @@
       }
     }
 
+    let filterLoading = false;
     async function applyFilter() {
+      if (filterLoading) return;
       clearFilterMarkers();
       const body = {
         energy_grades:   [...selectedEnergy],
@@ -1068,6 +1089,7 @@
       }
 
       document.getElementById('filter-result-count').textContent = '검색 중...';
+      filterLoading = true;
       try {
         const resp = await fetch(API + '/filter', {
           method: 'POST',
@@ -1079,14 +1101,14 @@
         // 황색 점으로 결과 표시
         const viewer = ws3d.viewer;
         filterResultCollection = viewer.scene.primitives.add(new Cesium.PointPrimitiveCollection());
-        data.buildings.forEach(b => {
+        (data.buildings || []).forEach(b => {
           if (!b.lng || !b.lat) return;
           filterResultCollection.add({
             position: Cesium.Cartesian3.fromDegrees(b.lng, b.lat, 18),
-            color: Cesium.Color.fromCssColorString('#facc15').withAlpha(0.95),
-            pixelSize: 9,
-            outlineColor: Cesium.Color.fromCssColorString('#b45309').withAlpha(0.9),
-            outlineWidth: 1.5,
+            color: Cesium.Color.fromCssColorString('#facc15').withAlpha(0.97),
+            pixelSize: 13,
+            outlineColor: Cesium.Color.fromCssColorString('#92400e').withAlpha(1.0),
+            outlineWidth: 2,
             heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND,
           });
         });
@@ -1095,8 +1117,14 @@
         countEl.innerHTML =
           `<b style="color:#4a9eff">${data.count.toLocaleString()}건</b> 조회됨` +
           (data.count >= 1000 ? ' <span style="color:#f59e0b">(최대 1000건)</span>' : '');
+        // floating badge (패널 닫혀도 결과 수 표시)
+        const badge = document.getElementById('filter-result-badge');
+        badge.textContent = `🔍 ${data.count.toLocaleString()}건 조회됨`;
+        badge.style.display = 'block';
       } catch(e) {
         document.getElementById('filter-result-count').textContent = '오류: ' + e.message;
+      } finally {
+        filterLoading = false;
       }
     }
 
@@ -1105,6 +1133,7 @@
         ws3d.viewer.scene.primitives.remove(filterResultCollection);
         filterResultCollection = null;
       }
+      document.getElementById('filter-result-badge').style.display = 'none';
     }
 
     function clearFilter() {
@@ -1113,6 +1142,7 @@
       document.getElementById('filter-use-bbox').checked = false;
       document.getElementById('filter-use-viewport').checked = false;
       clearFilterMarkers();
+      if (areaSelectMode) toggleAreaSelect();
       clearAreaSelection();
       document.getElementById('filter-result-count').textContent = '';
     }
@@ -1164,6 +1194,7 @@
     }
 
     function enableAreaSelectHandler() {
+      if (!ws3d?.viewer) return;
       const viewer = ws3d.viewer;
       if (areaSelectHandler) { areaSelectHandler.destroy(); }
       areaSelectHandler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
@@ -1203,16 +1234,8 @@
         const lat = Cesium.Math.toDegrees(carto.latitude);
         const west = Math.min(areaClickStart.lng, lng), east = Math.max(areaClickStart.lng, lng);
         const south = Math.min(areaClickStart.lat, lat), north = Math.max(areaClickStart.lat, lat);
-        if (areaPreviewEntity) viewer.entities.remove(areaPreviewEntity);
-        areaPreviewEntity = viewer.entities.add({
-          rectangle: {
-            coordinates: Cesium.Rectangle.fromDegrees(west, south, east, north),
-            material: Cesium.Color.fromCssColorString('#facc15').withAlpha(0.12),
-            outline: true,
-            outlineColor: Cesium.Color.fromCssColorString('#facc15').withAlpha(0.8),
-            outlineWidth: 2, height: 1,
-          }
-        });
+        clearAreaEntities();
+        areaPreviewEntities = addAreaEntities(viewer, west, south, east, north, false);
       }, Cesium.ScreenSpaceEventType.MOUSE_MOVE);
 
       // 우클릭 취소
@@ -1230,21 +1253,17 @@
 
       areaBbox = [west, south, east, north];
 
-      // 확정 사각형
-      if (areaPreviewEntity) viewer.entities.remove(areaPreviewEntity);
-      areaPreviewEntity = viewer.entities.add({
-        name: 'area_selection',
-        rectangle: {
-          coordinates: Cesium.Rectangle.fromDegrees(west, south, east, north),
-          material: Cesium.Color.fromCssColorString('#facc15').withAlpha(0.08),
-          outline: true,
-          outlineColor: Cesium.Color.fromCssColorString('#f59e0b'),
-          outlineWidth: 3, height: 1,
-        }
-      });
+      // 확정 사각형 (fill + 두꺼운 polyline 테두리)
+      clearAreaEntities();
+      areaPreviewEntities = addAreaEntities(viewer, west, south, east, north, true);
 
       // 필터 패널 업데이트
-      document.getElementById('filter-use-bbox').checked = true;
+      const bboxEl = document.getElementById('filter-use-bbox');
+      bboxEl.disabled = false;
+      bboxEl.checked = true;
+      document.getElementById('filter-use-viewport').checked = false;
+      document.getElementById('filter-bbox-label').textContent = '선택 영역 적용';
+      document.getElementById('filter-bbox-label').style.color = '';
       document.getElementById('filter-bbox-desc').textContent =
         `W:${west.toFixed(4)} S:${south.toFixed(4)} / E:${east.toFixed(4)} N:${north.toFixed(4)}`;
 
@@ -1257,24 +1276,80 @@
       areaClickStart = null;
     }
 
+    function clearAreaEntities() {
+      if (ws3d?.viewer) areaPreviewEntities.forEach(e => ws3d.viewer.entities.remove(e));
+      areaPreviewEntities = [];
+    }
+
+    function addAreaEntities(viewer, west, south, east, north, isFinal) {
+      const fillAlpha  = isFinal ? 0.20 : 0.10;
+      const lineColor  = isFinal
+        ? Cesium.Color.fromCssColorString('#f59e0b')
+        : Cesium.Color.fromCssColorString('#facc15').withAlpha(0.85);
+      const lineWidth  = isFinal ? 4 : 2;
+
+      const fill = viewer.entities.add({
+        rectangle: {
+          coordinates: Cesium.Rectangle.fromDegrees(west, south, east, north),
+          material: Cesium.Color.fromCssColorString('#facc15').withAlpha(fillAlpha),
+        }
+      });
+      // Polyline 테두리: clampToGround → 지형 위에 확실히 표시
+      const outline = viewer.entities.add({
+        polyline: {
+          positions: Cesium.Cartesian3.fromDegreesArray([
+            west, south,  east, south,
+            east, north,  west, north,
+            west, south,
+          ]),
+          width: lineWidth,
+          material: lineColor,
+          clampToGround: true,
+        }
+      });
+      return [fill, outline];
+    }
+
     function clearAreaSelection() {
-      if (areaPreviewEntity) { ws3d.viewer.entities.remove(areaPreviewEntity); areaPreviewEntity = null; }
+      clearAreaEntities();
       areaBbox = null;
-      document.getElementById('filter-use-bbox').checked = false;
+      const bboxEl = document.getElementById('filter-use-bbox');
+      bboxEl.checked = false;
+      bboxEl.disabled = true;
+      document.getElementById('filter-bbox-label').textContent = '선택 영역 적용 (영역 미지정)';
+      document.getElementById('filter-bbox-label').style.color = '#aaa';
       document.getElementById('filter-bbox-desc').textContent = '📐 영역 선택 버튼으로 지정';
     }
 
     // ── Phase 3.5: 2D/3D 전환 ───────────────────────────────────────────────
+    // VWorld는 Cesium scene mode 변경 미지원 → 카메라 각도로 2D 효과 구현
+    const SEOUL_CENTER = { lng: 126.978, lat: 37.560 };
+
     function toggle2DMode() {
-      is2DMode = !is2DMode;
+      if (!ws3d?.viewer) return;
       const btn = document.getElementById('mode-btn');
-      if (is2DMode) {
-        ws3d.viewer.scene.mode = Cesium.SceneMode.SCENE2D;
+      const ctrl = ws3d.viewer.scene.screenSpaceCameraController;
+      if (!is2DMode) {
+        // 2D: 서울 전체 수직 탑뷰 (pitch -90°, heading 0° = 정북)
+        ws3d.viewer.camera.flyTo({
+          destination: Cesium.Cartesian3.fromDegrees(SEOUL_CENTER.lng, SEOUL_CENTER.lat, 30000),
+          orientation: { heading: 0, pitch: Cesium.Math.toRadians(-90), roll: 0 },
+          duration: 1.5,
+        });
+        ctrl.enableTilt   = false;
+        is2DMode = true;
         btn.textContent = '🏙 3D 보기';
         btn.style.background = '#0ea5e9';
         btn.style.color = '#fff';
       } else {
-        ws3d.viewer.scene.mode = Cesium.SceneMode.SCENE3D;
+        // 3D: 기본 사시 뷰 복귀
+        ctrl.enableTilt   = true;
+        ws3d.viewer.camera.flyTo({
+          destination: Cesium.Cartesian3.fromDegrees(SEOUL_CENTER.lng, SEOUL_CENTER.lat, 12000),
+          orientation: { heading: 0, pitch: Cesium.Math.toRadians(-60), roll: 0 },
+          duration: 1.5,
+        });
+        is2DMode = false;
         btn.textContent = '🗺 2D 보기';
         btn.style.background = 'rgba(255,255,255,0.92)';
         btn.style.color = '#333';

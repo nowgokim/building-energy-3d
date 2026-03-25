@@ -12,7 +12,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -35,6 +35,7 @@ class FilterRequest(BaseModel):
     usage_types: list[str] = []
     bbox: list[float] = []  # [west, south, east, north]
 
+    @model_validator(mode="before")
     @classmethod
     def model_validator_bbox(cls, values: dict) -> dict:
         bbox = values.get("bbox", [])
@@ -56,21 +57,28 @@ class FilterRequest(BaseModel):
 def _build_filter_query(
     filters: FilterRequest,
 ) -> tuple[str, dict]:
-    """Build a WHERE clause and parameter dict from a FilterRequest."""
+    """Build a WHERE clause and parameter dict from a FilterRequest.
+
+    Uses numbered bind parameters for list values (e.g. :eg_0, :eg_1) to
+    avoid psycopg2's inability to adapt Python list objects with ANY().
+    """
     conditions: list[str] = []
     params: dict = {}
 
     if filters.energy_grades:
-        conditions.append("b.energy_grade = ANY(:energy_grades)")
-        params["energy_grades"] = filters.energy_grades
+        keys = [f"eg_{i}" for i in range(len(filters.energy_grades))]
+        conditions.append(f"b.energy_grade IN ({', '.join(':' + k for k in keys)})")
+        params.update(dict(zip(keys, filters.energy_grades)))
 
     if filters.vintage_classes:
-        conditions.append("b.vintage_class = ANY(:vintage_classes)")
-        params["vintage_classes"] = filters.vintage_classes
+        keys = [f"vc_{i}" for i in range(len(filters.vintage_classes))]
+        conditions.append(f"b.vintage_class IN ({', '.join(':' + k for k in keys)})")
+        params.update(dict(zip(keys, filters.vintage_classes)))
 
     if filters.usage_types:
-        conditions.append("b.usage_type = ANY(:usage_types)")
-        params["usage_types"] = filters.usage_types
+        keys = [f"ut_{i}" for i in range(len(filters.usage_types))]
+        conditions.append(f"b.usage_type IN ({', '.join(':' + k for k in keys)})")
+        params.update(dict(zip(keys, filters.usage_types)))
 
     if len(filters.bbox) == 4:
         west, south, east, north = filters.bbox

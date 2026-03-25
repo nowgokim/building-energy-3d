@@ -8,6 +8,8 @@
 import logging
 from typing import Optional
 
+from sqlalchemy import text
+
 from src.shared.celery_app import celery
 from src.shared.database import get_db
 
@@ -34,7 +36,6 @@ def build_adjacency_district(self, sgg_code: str, dist_m: float = ADJACENCY_DIST
     25m 이내 이웃 쌍만 저장 (양방향, 자기참조 제외).
     PostGIS ST_DWithin(geography) 사용 → 미터 단위 정확.
     """
-    from sqlalchemy import text
     db = next(get_db())
     try:
         logger.info("Adjacency build start: sgg=%s dist=%.0fm", sgg_code, dist_m)
@@ -102,7 +103,6 @@ def compute_fire_clusters(
         min_points: 클러스터 최소 건물 수
         min_score: 클러스터 포함 최소 위험 점수
     """
-    from sqlalchemy import text
     db = next(get_db())
     try:
         logger.info(

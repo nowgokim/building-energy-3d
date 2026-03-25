@@ -6,6 +6,7 @@ with energy attributes, returned as GeoJSON for map integration.
 """
 
 import logging
+import re
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -269,7 +270,6 @@ def get_building_detail(
     db: Session = Depends(get_db_dependency),
 ) -> dict:
     """Retrieve a single building with full attributes and energy results."""
-    import re
     if not re.match(r"^\d{19,25}$", pnu):
         raise HTTPException(status_code=400, detail="Invalid PNU format")
 

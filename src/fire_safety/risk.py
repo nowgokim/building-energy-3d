@@ -111,8 +111,8 @@ def list_fire_risk(
                 "pnu":   r.pnu,
                 "score": int(r.total_score),
                 "grade": r.risk_grade,
-                "lng":   float(r.lng),
-                "lat":   float(r.lat),
+                "lng":   float(r.lng) if r.lng is not None else None,
+                "lat":   float(r.lat) if r.lat is not None else None,
             }
             for r in rows
         ],
@@ -196,8 +196,8 @@ def list_fire_stations(
                 "name": r.name,
                 "type": r.station_type,
                 "district": r.district,
-                "lng": float(r.lng),
-                "lat": float(r.lat),
+                "lng": float(r.lng) if r.lng is not None else None,
+                "lat": float(r.lat) if r.lat is not None else None,
             }
             for r in rows
         ],
