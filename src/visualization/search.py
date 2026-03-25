@@ -118,6 +118,24 @@ def _filtered_rows(db: Session, filters: FilterRequest) -> list:
 # Endpoints
 # ---------------------------------------------------------------------------
 
+@router.get("/filter/options")
+def get_filter_options(db: Session = Depends(get_db_dependency)) -> dict:
+    """Return distinct filter values available in the database."""
+    sql = text("""
+        SELECT
+            array_agg(DISTINCT usage_type   ORDER BY usage_type)   FILTER (WHERE usage_type   IS NOT NULL) AS usage_types,
+            array_agg(DISTINCT vintage_class ORDER BY vintage_class) FILTER (WHERE vintage_class IS NOT NULL) AS vintage_classes,
+            array_agg(DISTINCT energy_grade  ORDER BY energy_grade)  FILTER (WHERE energy_grade  IS NOT NULL) AS energy_grades
+        FROM buildings_enriched
+    """)
+    row = db.execute(sql).fetchone()
+    return {
+        "usage_types":    row.usage_types    or [],
+        "vintage_classes": row.vintage_classes or [],
+        "energy_grades":   row.energy_grades  or [],
+    }
+
+
 @router.get("/search")
 def search_buildings(
     q: str = Query(..., min_length=1, max_length=100, description="Search keyword"),

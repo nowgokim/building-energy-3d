@@ -66,7 +66,7 @@
       padding: 12px 24px; border-radius: 8px; }
 
     #texture-panel {
-      position: absolute; top: 206px; left: 12px; z-index: 100;
+      position: absolute; top: 60px; left: 145px; z-index: 100;
       background: rgba(255,255,255,0.95); border-radius: 8px; padding: 10px;
       box-shadow: 0 2px 12px rgba(0,0,0,0.15); width: 210px; display: none;
       font-size: 12px;
@@ -99,12 +99,48 @@
     #fire-btn    { top: 96px; }
     #cluster-btn { top: 132px; }
     #station-btn { top: 168px; }
+    #filter-btn  { top: 204px; }
+    #area-btn    { top: 240px; }
+    #mode-btn    { top: 276px; }
     #fire-legend {
       display: none; position: absolute; bottom: 40px; left: 12px; z-index: 100;
       background: rgba(255,255,255,0.93); border-radius: 8px; padding: 8px 12px;
       box-shadow: 0 2px 8px rgba(0,0,0,0.12); font-size: 11px; min-width: 185px;
     }
     #fire-legend .dot { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:4px; vertical-align:middle; }
+
+    /* 영역 선택 상태 표시 바 */
+    #area-status-bar {
+      display: none; position: absolute; top: 240px; left: 145px; z-index: 101;
+      background: rgba(124,58,237,0.9); color: #fff;
+      padding: 4px 10px; border-radius: 6px; font-size: 11px; white-space: nowrap;
+    }
+
+    /* 필터 패널 — 버튼 열 오른쪽에 배치 */
+    #filter-panel {
+      display: none; position: absolute; top: 60px; left: 145px; z-index: 100;
+      background: rgba(255,255,255,0.97); border-radius: 10px; padding: 10px 12px;
+      box-shadow: 0 2px 16px rgba(0,0,0,0.15); width: 230px;
+      max-height: calc(100vh - 100px); overflow-y: auto; font-size: 12px;
+    }
+    #filter-panel h3 { margin: 0 0 8px; font-size: 13px; }
+    .f-section { margin-bottom: 8px; }
+    .f-title { font-size: 10px; color: #888; font-weight: 600; margin-bottom: 3px; }
+    .f-chips { display: flex; flex-wrap: wrap; gap: 3px; }
+    .f-chip {
+      padding: 2px 7px; border: 1px solid #ddd; border-radius: 12px;
+      cursor: pointer; font-size: 10px; user-select: none;
+      transition: background 0.15s, color 0.15s;
+    }
+    .f-chip:hover { border-color: #4a9eff; color: #4a9eff; }
+    .f-chip.active { background: #4a9eff; color: #fff; border-color: #4a9eff; }
+    .f-chip.no-data { color: #aaa; cursor: default; }
+    #filter-result-count { margin: 6px 0 4px; font-size: 11px; color: #888; min-height: 16px; }
+    .f-btn-row { display: flex; gap: 4px; margin-top: 6px; }
+    .f-btn-apply  { background: #4a9eff; color: #fff; border: none; border-radius: 4px; padding: 5px 0; cursor: pointer; font-size: 11px; flex: 1; }
+    .f-btn-clear  { background: #f3f4f6; color: #555; border: none; border-radius: 4px; padding: 5px 8px; cursor: pointer; font-size: 11px; }
+    .f-btn-export { background: #22c55e; color: #fff; border: none; border-radius: 4px; padding: 5px 8px; cursor: pointer; font-size: 11px; }
+
   </style>
 </head>
 <body>
@@ -116,6 +152,54 @@
   <button id="fire-btn"    class="map-btn" onclick="toggleFireMode()">🔥 화재위험도</button>
   <button id="cluster-btn" class="map-btn" onclick="toggleClusters()" title="화재 위험도 60점 이상 건물이 반경 100m 내 밀집된 구역">🔴 화재 취약 밀집구역</button>
   <button id="station-btn" class="map-btn" onclick="toggleStations()">🚒 소방서 위치</button>
+  <button id="filter-btn"  class="map-btn" onclick="toggleFilterPanel()">🔍 필터</button>
+  <button id="area-btn"    class="map-btn" onclick="toggleAreaSelect()">📐 영역 선택</button>
+  <button id="mode-btn"    class="map-btn" onclick="toggle2DMode()">🗺 2D 보기</button>
+
+  <!-- 영역 선택 안내 -->
+  <div id="area-status-bar">첫 번째 꼭지점을 클릭하세요</div>
+
+  <!-- 필터 패널 -->
+  <div id="filter-panel">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <h3>🔍 건물 필터</h3>
+      <span style="cursor:pointer;color:#aaa;font-size:18px;line-height:1" onclick="toggleFilterPanel()">×</span>
+    </div>
+
+    <div class="f-section">
+      <div class="f-title">에너지 등급</div>
+      <div class="f-chips" id="chips-energy"><span class="f-chip no-data">로딩 중...</span></div>
+    </div>
+
+    <div class="f-section">
+      <div class="f-title">빈티지 (건축연대)</div>
+      <div class="f-chips" id="chips-vintage"><span class="f-chip no-data">로딩 중...</span></div>
+    </div>
+
+    <div class="f-section">
+      <div class="f-title">용도</div>
+      <div class="f-chips" id="chips-usage"><span class="f-chip no-data">로딩 중...</span></div>
+    </div>
+
+    <div class="f-section">
+      <div class="f-title">영역 조건</div>
+      <label style="display:flex;align-items:center;gap:5px;font-size:11px;margin-bottom:3px;cursor:pointer">
+        <input type="checkbox" id="filter-use-bbox"> 선택 영역 적용
+      </label>
+      <div id="filter-bbox-desc" style="font-size:10px;color:#aaa;margin-left:18px;margin-bottom:3px">📐 영역 선택 버튼으로 지정</div>
+      <label style="display:flex;align-items:center;gap:5px;font-size:11px;cursor:pointer">
+        <input type="checkbox" id="filter-use-viewport"> 현재 화면 범위
+      </label>
+    </div>
+
+    <div id="filter-result-count"></div>
+
+    <div class="f-btn-row">
+      <button class="f-btn-apply" onclick="applyFilter()">필터 적용</button>
+      <button class="f-btn-clear" onclick="clearFilter()">초기화</button>
+      <button class="f-btn-export" onclick="exportFilter()" title="CSV 내보내기">↓CSV</button>
+    </div>
+  </div>
 
   <!-- Fire Risk Legend (fire mode 활성 시 표시) -->
   <div id="fire-legend">
@@ -197,6 +281,20 @@
     const API = "/api/v1";
     let currentAbort = null;
 
+    // ── Phase 3.5 상태 변수 (전역 선언) ──────────────────────────────────────
+    let filterPanelVisible = false;
+    let filterResultCollection = null;
+    let filterOptionsLoaded = false;
+    const selectedEnergy  = new Set();
+    const selectedVintage = new Set();
+    const selectedUsage   = new Set();
+    let areaBbox = null;
+    let areaPreviewEntity = null;
+    let areaSelectMode = false;
+    let areaClickStart = null;
+    let areaSelectHandler = null;
+    let is2DMode = false;
+
     // --- VWorld Map Init ---
     var map = new vw.Map();
     map.setOption({
@@ -239,6 +337,7 @@
 
       // Click handler — server-side pick
       viewer.screenSpaceEventHandler.setInputAction(function (event) {
+        if (areaSelectMode) return;  // 영역 선택 모드가 전담
         if (currentAbort) currentAbort.abort();
         const controller = new AbortController();
         currentAbort = controller;
@@ -603,6 +702,8 @@
       const panel = document.getElementById("texture-panel");
       const btn = document.getElementById("texture-btn");
       if (textureMode) {
+        // 필터 패널과 상호 배타적
+        if (filterPanelVisible) toggleFilterPanel();
         panel.style.display = "block";
         btn.textContent = "🎨 면 텍스처 ON";
         btn.style.background = "#4a9eff";
@@ -883,6 +984,301 @@
 
     function closePanel() {
       document.getElementById("panel").style.display = "none";
+    }
+
+    // ── Phase 3.5: 필터 ──────────────────────────────────────────────────────
+
+    async function loadFilterOptions() {
+      if (filterOptionsLoaded) return;
+      try {
+        const resp = await fetch(API + '/filter/options');
+        const data = await resp.json();
+        renderChips('chips-energy',  data.energy_grades,   selectedEnergy);
+        renderChips('chips-vintage', data.vintage_classes, selectedVintage);
+        renderChips('chips-usage',   data.usage_types,     selectedUsage);
+        filterOptionsLoaded = true;
+      } catch(e) {
+        console.error('filter options load failed', e);
+      }
+    }
+
+    function renderChips(containerId, values, selectedSet) {
+      const container = document.getElementById(containerId);
+      if (!values || !values.length) {
+        container.innerHTML = '<span class="f-chip no-data">데이터 없음</span>';
+        return;
+      }
+      container.innerHTML = values.map(v =>
+        `<span class="f-chip" data-value="${v}" onclick="toggleChip(this,'${containerId}')">${v}</span>`
+      ).join('');
+    }
+
+    function toggleChip(el, containerId) {
+      const setMap = { 'chips-energy': selectedEnergy, 'chips-vintage': selectedVintage, 'chips-usage': selectedUsage };
+      const set = setMap[containerId];
+      const v = el.dataset.value;
+      if (set.has(v)) { set.delete(v); el.classList.remove('active'); }
+      else            { set.add(v);    el.classList.add('active'); }
+    }
+
+    function toggleFilterPanel() {
+      // 텍스처 패널과 상호 배타적
+      if (!filterPanelVisible) closeTexturePanel();
+      filterPanelVisible = !filterPanelVisible;
+      const panel = document.getElementById('filter-panel');
+      const btn   = document.getElementById('filter-btn');
+      if (filterPanelVisible) {
+        panel.style.display = 'block';
+        btn.textContent = '🔍 필터 ON';
+        btn.style.background = '#4a9eff';
+        btn.style.color = '#fff';
+        loadFilterOptions();
+      } else {
+        panel.style.display = 'none';
+        btn.textContent = '🔍 필터';
+        btn.style.background = 'rgba(255,255,255,0.92)';
+        btn.style.color = '#333';
+      }
+    }
+
+    async function applyFilter() {
+      clearFilterMarkers();
+      const body = {
+        energy_grades:   [...selectedEnergy],
+        vintage_classes: [...selectedVintage],
+        usage_types:     [...selectedUsage],
+        bbox: [],
+      };
+
+      if (document.getElementById('filter-use-bbox').checked && areaBbox) {
+        body.bbox = areaBbox;
+      } else if (document.getElementById('filter-use-viewport').checked) {
+        const rect = ws3d.viewer.camera.computeViewRectangle();
+        if (rect) body.bbox = [
+          Cesium.Math.toDegrees(rect.west),  Cesium.Math.toDegrees(rect.south),
+          Cesium.Math.toDegrees(rect.east),  Cesium.Math.toDegrees(rect.north),
+        ];
+      }
+
+      const hasFilter = body.energy_grades.length || body.vintage_classes.length ||
+                        body.usage_types.length   || body.bbox.length;
+      if (!hasFilter) {
+        document.getElementById('filter-result-count').textContent = '⚠ 필터 조건을 하나 이상 선택하세요';
+        return;
+      }
+
+      document.getElementById('filter-result-count').textContent = '검색 중...';
+      try {
+        const resp = await fetch(API + '/filter', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(body),
+        });
+        const data = await resp.json();
+
+        // 황색 점으로 결과 표시
+        const viewer = ws3d.viewer;
+        filterResultCollection = viewer.scene.primitives.add(new Cesium.PointPrimitiveCollection());
+        data.buildings.forEach(b => {
+          if (!b.lng || !b.lat) return;
+          filterResultCollection.add({
+            position: Cesium.Cartesian3.fromDegrees(b.lng, b.lat, 18),
+            color: Cesium.Color.fromCssColorString('#facc15').withAlpha(0.95),
+            pixelSize: 9,
+            outlineColor: Cesium.Color.fromCssColorString('#b45309').withAlpha(0.9),
+            outlineWidth: 1.5,
+            heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND,
+          });
+        });
+
+        const countEl = document.getElementById('filter-result-count');
+        countEl.innerHTML =
+          `<b style="color:#4a9eff">${data.count.toLocaleString()}건</b> 조회됨` +
+          (data.count >= 1000 ? ' <span style="color:#f59e0b">(최대 1000건)</span>' : '');
+      } catch(e) {
+        document.getElementById('filter-result-count').textContent = '오류: ' + e.message;
+      }
+    }
+
+    function clearFilterMarkers() {
+      if (filterResultCollection) {
+        ws3d.viewer.scene.primitives.remove(filterResultCollection);
+        filterResultCollection = null;
+      }
+    }
+
+    function clearFilter() {
+      selectedEnergy.clear(); selectedVintage.clear(); selectedUsage.clear();
+      document.querySelectorAll('.f-chip.active').forEach(el => el.classList.remove('active'));
+      document.getElementById('filter-use-bbox').checked = false;
+      document.getElementById('filter-use-viewport').checked = false;
+      clearFilterMarkers();
+      clearAreaSelection();
+      document.getElementById('filter-result-count').textContent = '';
+    }
+
+    function exportFilter() {
+      const params = new URLSearchParams();
+      if (selectedEnergy.size)  params.set('energy_grades',   [...selectedEnergy].join(','));
+      if (selectedVintage.size) params.set('vintage_classes', [...selectedVintage].join(','));
+      if (selectedUsage.size)   params.set('usage_types',     [...selectedUsage].join(','));
+
+      let bbox = null;
+      if (document.getElementById('filter-use-bbox').checked && areaBbox) {
+        bbox = areaBbox;
+      } else if (document.getElementById('filter-use-viewport').checked) {
+        const rect = ws3d.viewer.camera.computeViewRectangle();
+        if (rect) bbox = [
+          Cesium.Math.toDegrees(rect.west),  Cesium.Math.toDegrees(rect.south),
+          Cesium.Math.toDegrees(rect.east),  Cesium.Math.toDegrees(rect.north),
+        ];
+      }
+      if (bbox) {
+        params.set('west', bbox[0]); params.set('south', bbox[1]);
+        params.set('east', bbox[2]); params.set('north', bbox[3]);
+      }
+      window.open(API + '/filter/export?' + params.toString(), '_blank');
+    }
+
+    // ── Phase 3.5: 영역 선택 ─────────────────────────────────────────────────
+
+    function toggleAreaSelect() {
+      areaSelectMode = !areaSelectMode;
+      const btn       = document.getElementById('area-btn');
+      const statusBar = document.getElementById('area-status-bar');
+      if (areaSelectMode) {
+        btn.textContent = '📐 선택 취소';
+        btn.style.background = '#7c3aed';
+        btn.style.color = '#fff';
+        statusBar.textContent = '첫 번째 꼭지점을 클릭하세요 (우클릭: 취소)';
+        statusBar.style.display = 'block';
+        areaClickStart = null;
+        enableAreaSelectHandler();
+      } else {
+        btn.textContent = '📐 영역 선택';
+        btn.style.background = 'rgba(255,255,255,0.92)';
+        btn.style.color = '#333';
+        statusBar.style.display = 'none';
+        disableAreaSelectHandler();
+      }
+    }
+
+    function enableAreaSelectHandler() {
+      const viewer = ws3d.viewer;
+      if (areaSelectHandler) { areaSelectHandler.destroy(); }
+      areaSelectHandler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
+
+      // 첫 번째 / 두 번째 클릭
+      areaSelectHandler.setInputAction(function(event) {
+        let cartesian = viewer.scene.pickPosition(event.position);
+        if (!cartesian) {
+          const ray = viewer.camera.getPickRay(event.position);
+          if (ray) cartesian = viewer.scene.globe.pick(ray, viewer.scene);
+        }
+        if (!cartesian) return;
+        const carto = Cesium.Cartographic.fromCartesian(cartesian);
+        const lng = Cesium.Math.toDegrees(carto.longitude);
+        const lat = Cesium.Math.toDegrees(carto.latitude);
+
+        if (!areaClickStart) {
+          areaClickStart = {lng, lat};
+          document.getElementById('area-status-bar').textContent =
+            '두 번째 꼭지점을 클릭하세요 (우클릭: 취소)';
+        } else {
+          finishAreaSelect(lng, lat);
+        }
+      }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+
+      // 마우스 이동 → 미리보기 사각형
+      areaSelectHandler.setInputAction(function(event) {
+        if (!areaClickStart) return;
+        let cartesian = viewer.scene.pickPosition(event.endPosition);
+        if (!cartesian) {
+          const ray = viewer.camera.getPickRay(event.endPosition);
+          if (ray) cartesian = viewer.scene.globe.pick(ray, viewer.scene);
+        }
+        if (!cartesian) return;
+        const carto = Cesium.Cartographic.fromCartesian(cartesian);
+        const lng = Cesium.Math.toDegrees(carto.longitude);
+        const lat = Cesium.Math.toDegrees(carto.latitude);
+        const west = Math.min(areaClickStart.lng, lng), east = Math.max(areaClickStart.lng, lng);
+        const south = Math.min(areaClickStart.lat, lat), north = Math.max(areaClickStart.lat, lat);
+        if (areaPreviewEntity) viewer.entities.remove(areaPreviewEntity);
+        areaPreviewEntity = viewer.entities.add({
+          rectangle: {
+            coordinates: Cesium.Rectangle.fromDegrees(west, south, east, north),
+            material: Cesium.Color.fromCssColorString('#facc15').withAlpha(0.12),
+            outline: true,
+            outlineColor: Cesium.Color.fromCssColorString('#facc15').withAlpha(0.8),
+            outlineWidth: 2, height: 1,
+          }
+        });
+      }, Cesium.ScreenSpaceEventType.MOUSE_MOVE);
+
+      // 우클릭 취소
+      areaSelectHandler.setInputAction(function() {
+        if (areaSelectMode) toggleAreaSelect();
+      }, Cesium.ScreenSpaceEventType.RIGHT_CLICK);
+    }
+
+    function finishAreaSelect(endLng, endLat) {
+      const viewer = ws3d.viewer;
+      const west  = Math.min(areaClickStart.lng, endLng);
+      const east  = Math.max(areaClickStart.lng, endLng);
+      const south = Math.min(areaClickStart.lat, endLat);
+      const north = Math.max(areaClickStart.lat, endLat);
+
+      areaBbox = [west, south, east, north];
+
+      // 확정 사각형
+      if (areaPreviewEntity) viewer.entities.remove(areaPreviewEntity);
+      areaPreviewEntity = viewer.entities.add({
+        name: 'area_selection',
+        rectangle: {
+          coordinates: Cesium.Rectangle.fromDegrees(west, south, east, north),
+          material: Cesium.Color.fromCssColorString('#facc15').withAlpha(0.08),
+          outline: true,
+          outlineColor: Cesium.Color.fromCssColorString('#f59e0b'),
+          outlineWidth: 3, height: 1,
+        }
+      });
+
+      // 필터 패널 업데이트
+      document.getElementById('filter-use-bbox').checked = true;
+      document.getElementById('filter-bbox-desc').textContent =
+        `W:${west.toFixed(4)} S:${south.toFixed(4)} / E:${east.toFixed(4)} N:${north.toFixed(4)}`;
+
+      toggleAreaSelect();  // 선택 모드 종료
+      if (!filterPanelVisible) toggleFilterPanel();  // 필터 패널 자동 열기
+    }
+
+    function disableAreaSelectHandler() {
+      if (areaSelectHandler) { areaSelectHandler.destroy(); areaSelectHandler = null; }
+      areaClickStart = null;
+    }
+
+    function clearAreaSelection() {
+      if (areaPreviewEntity) { ws3d.viewer.entities.remove(areaPreviewEntity); areaPreviewEntity = null; }
+      areaBbox = null;
+      document.getElementById('filter-use-bbox').checked = false;
+      document.getElementById('filter-bbox-desc').textContent = '📐 영역 선택 버튼으로 지정';
+    }
+
+    // ── Phase 3.5: 2D/3D 전환 ───────────────────────────────────────────────
+    function toggle2DMode() {
+      is2DMode = !is2DMode;
+      const btn = document.getElementById('mode-btn');
+      if (is2DMode) {
+        ws3d.viewer.scene.mode = Cesium.SceneMode.SCENE2D;
+        btn.textContent = '🏙 3D 보기';
+        btn.style.background = '#0ea5e9';
+        btn.style.color = '#fff';
+      } else {
+        ws3d.viewer.scene.mode = Cesium.SceneMode.SCENE3D;
+        btn.textContent = '🗺 2D 보기';
+        btn.style.background = 'rgba(255,255,255,0.92)';
+        btn.style.color = '#333';
+      }
     }
 
     // --- Search ---
