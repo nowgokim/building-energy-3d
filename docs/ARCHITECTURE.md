@@ -1,8 +1,8 @@
 # 시스템 아키텍처 설계서
 
-**문서 버전**: 1.1
+**문서 버전**: 1.2
 **작성일**: 2026-03-21
-**최종 수정**: 2026-03-21 (전문가 리뷰 반영)
+**최종 수정**: 2026-03-25 (서울 전역 확장 + 화재안전 Phase F0/F1 + DB 스키마 실제 반영)
 **관련 문서**: [PRD](./PRD.md)
 
 ---
@@ -11,7 +11,10 @@
 
 ### 1.1 목적
 
-서울특별시 마포구(시군구코드 11440) 약 25,000~30,000동의 건물을 3D로 시각화하고, 에너지 시뮬레이션 결과를 오버레이하는 웹 플랫폼.
+서울특별시 전역 **766,386동**의 건물을 3D로 시각화하고, 에너지 시뮬레이션 결과와 화재 위험도를 오버레이하는 웹 플랫폼.
+
+- **데이터 커버리지**: 서울 25개 구 전역 (VWorld footprint 766K + 건축물대장 1,004,689건)
+- **현재 단계**: Phase 3.5 완료 (필터 UI + 영역 선택 + 화재안전 F0/F1)
 
 ### 1.2 시스템 경계
 
@@ -170,33 +173,37 @@ $ ogr2ogr -f "PostgreSQL" \
     마포구_건물통합정보.shp
 ```
 
-마포구 필터링: 시군구코드 `11440` 기준
+서울 전역: 25개 구 (시군구코드 11110~11740) 자동 순회. 완료: 766,386건.
 
 #### 3.1.2 건축물대장 API 수집
 
 ```python
-# PublicDataReader 활용
+# PublicDataReader 활용 — 서울 25개 구 전역
 from PublicDataReader import BuildingLedger
 
-api = BuildingLedger(service_key="YOUR_API_KEY")
+api = BuildingLedger(service_key="DATA_GO_KR_API_KEY")
 
-# 마포구 법정동코드 목록으로 순회
-for bdong_code in mapo_bdong_codes:
-    df = api.get_data(
-        ledger_type="총괄표제부",
-        sigungu_code="11440",
-        bdong_code=bdong_code
-    )
-    # → PostgreSQL building_ledger 테이블에 적재
+# 각 구별 법정동코드 목록으로 순회 (말소일자 == '' 필터 필수)
+for sigungu_code in SEOUL_SGG_CODES:  # 25개 구
+    for bdong_code in gu_bdong_codes:
+        df_recap  = api.get_data("총괄표제부", sigungu_code, bdong_code)
+        df_title  = api.get_data("표제부",     sigungu_code, bdong_code)
+        # → PostgreSQL building_ledger 테이블에 upsert
+# 완료: 총 1,004,689건 (총괄표제부 + 표제부)
 ```
+
+**주의사항**: `말소일자` 필드는 활성 동코드가 빈 문자열 `''`로 저장됨 (NULL 아님).
+`말소일자 == ''` 조건으로 필터링해야 정상 동코드만 추출됨.
 
 #### 3.1.3 데이터 동기화 전략
 
-| 데이터 | 초기 수집 | 갱신 방식 | 갱신 주기 | Celery Task |
-|--------|----------|----------|----------|------------|
-| GIS건물통합정보 | SHP 벌크 | SHP 재다운로드 | 월 1회 | `sync_gis_footprints` |
-| 건축물대장 | API 전수 (법정동별) | API 델타 (변경분) | 주 1회 | `sync_building_ledger` |
-| 건물에너지정보 | API 전수 | API 전수 | 분기 1회 | `sync_energy_data` |
+| 데이터 | 초기 수집 | 갱신 방식 | 갱신 주기 | 상태 |
+|--------|----------|----------|----------|------|
+| GIS건물통합정보 | ✅ SHP 벌크 (서울 전역 766K) | SHP 재다운로드 | 월 1회 | ✅ 완료 |
+| 건축물대장 | ✅ API 전수 (25개 구, 1,004K건) | API 델타 (변경분) | 주 1회 | ✅ 완료 |
+| 건물에너지정보 | ⏳ 미착수 | API 전수 | 분기 1회 | ⏳ Phase 4 |
+| 기상청 TMY | ⏳ 미착수 | 연 1회 | 연 1회 | ⏳ Phase 4 |
+| 화재 위험도 | ✅ buildings_enriched 기반 자동 계산 | view refresh | 건축물대장 갱신 시 | ✅ 완료 |
 
 ### 3.2 데이터베이스 설계 (`src/shared/`)
 
@@ -238,43 +245,64 @@ CREATE TABLE building_ledger (
 );
 CREATE INDEX idx_ledger_pnu ON building_ledger(pnu);
 
--- 3. 통합 뷰 (핵심 JOIN)
+-- 3. 통합 뷰 (2단계 LATERAL JOIN — 에너지등급 + 구조정보 분리)
+-- ※ 단일 LATERAL JOIN으로는 에너지등급(총괄표제부)과 구조(표제부)를 동시에 못 잡음
 CREATE MATERIALIZED VIEW buildings_enriched AS
 SELECT
     f.gid,
     f.pnu,
     f.geom,
-    COALESCE(f.dong_nm, l.dong_nm) AS dong_nm,
-    COALESCE(f.bld_ht, l.bld_ht, l.grnd_flr_cnt * 3.3, 10.0) AS height,
-    l.main_purps_nm AS usage_type,
-    l.strct_nm AS structure_type,
-    l.grnd_flr_cnt AS floors_above,
-    l.ugrnd_flr_cnt AS floors_below,
-    l.tot_area,
-    l.bld_area,
-    l.use_apr_day,
-    l.enrgy_eff_rate AS energy_grade,
+    -- 높이: footprint > 표제부 > 층수×3.3 > 기본 10m
+    COALESCE(f.bld_ht, l_best.bld_ht, l_best.grnd_flr_cnt * 3.3, 10.0) AS height,
+    -- 에너지 정보: 총괄표제부(에너지등급 있는 행) 우선
+    COALESCE(l_energy.enrgy_eff_rate, NULL)       AS energy_grade,
+    COALESCE(l_energy.main_purps_nm, l_best.main_purps_nm) AS usage_type,
+    COALESCE(l_energy.bld_nm, l_best.bld_nm)      AS building_name,
+    -- 구조 정보: 지상층수 높은 표제부 우선
+    l_best.strct_nm    AS structure_type,
+    l_best.grnd_flr_cnt AS floors_above,
+    l_best.ugrnd_flr_cnt AS floors_below,
+    COALESCE(l_energy.tot_area, l_best.tot_area)  AS total_area,
+    COALESCE(l_energy.bld_area, l_best.bld_area)  AS bld_area,
+    COALESCE(l_energy.use_apr_day, l_best.use_apr_day) AS use_apr_day,
+    f.pnu AS pnu_key,
     -- 원형 분류용 파생 컬럼
     CASE
-        WHEN l.use_apr_day < '2001-01-01' THEN 'pre-2001'
-        WHEN l.use_apr_day < '2010-01-01' THEN '2001-2009'
-        WHEN l.use_apr_day < '2017-01-01' THEN '2010-2016'
-        ELSE '2017-present'
-    END AS vintage_class,
-    CASE
-        WHEN l.tot_area < 500 THEN 'small'
-        WHEN l.tot_area < 3000 THEN 'medium'
-        ELSE 'large'
-    END AS size_class
+        WHEN COALESCE(l_energy.use_apr_day, l_best.use_apr_day) < '1980-01-01' THEN 'pre-1980'
+        WHEN COALESCE(l_energy.use_apr_day, l_best.use_apr_day) < '2001-01-01' THEN '1980-2000'
+        WHEN COALESCE(l_energy.use_apr_day, l_best.use_apr_day) < '2011-01-01' THEN '2001-2010'
+        ELSE 'post-2010'
+    END AS vintage_class
 FROM building_footprints f
-LEFT JOIN building_ledger l
-    ON f.pnu = l.pnu
-    AND (f.dong_nm = l.dong_nm OR f.dong_nm IS NULL OR l.dong_nm IS NULL);
+-- LATERAL 1: 에너지등급 있는 행 (총괄표제부)
+LEFT JOIN LATERAL (
+    SELECT enrgy_eff_rate, main_purps_nm, bld_nm, tot_area, bld_area, use_apr_day
+    FROM building_ledger
+    WHERE pnu = f.pnu AND enrgy_eff_rate IS NOT NULL
+    ORDER BY tot_area DESC NULLS LAST
+    LIMIT 1
+) l_energy ON true
+-- LATERAL 2: 구조/층수 정보 (지상층수 높은 표제부)
+LEFT JOIN LATERAL (
+    SELECT main_purps_nm, bld_nm, strct_nm, grnd_flr_cnt, ugrnd_flr_cnt,
+           bld_ht, tot_area, bld_area, use_apr_day
+    FROM building_ledger
+    WHERE pnu = f.pnu
+    ORDER BY grnd_flr_cnt DESC NULLS LAST, tot_area DESC NULLS LAST
+    LIMIT 1
+) l_best ON true
+WHERE f.geom IS NOT NULL AND ST_IsValid(f.geom);
 
 CREATE INDEX idx_enriched_geom ON buildings_enriched USING GIST(geom);
-CREATE INDEX idx_enriched_pnu ON buildings_enriched(pnu);
+CREATE INDEX idx_enriched_pnu  ON buildings_enriched(pnu);
 COMMENT ON MATERIALIZED VIEW buildings_enriched IS
-    'GIS footprint + 건축물대장 속성 PNU JOIN. 높이 우선순위: footprint > ledger > 층수x3.3 > 10m 기본값';
+    'GIS footprint + 건축물대장 2단계 LATERAL JOIN. l_energy=에너지등급(총괄표제부), l_best=구조/층수(표제부). 770,909건.';
+
+-- 4a. 빠른 KNN pick용 centroid 테이블 (Point GiST, 0.07ms)
+CREATE TABLE building_centroids AS
+SELECT pnu, ST_Centroid(geom)::geometry(Point, 4326) AS centroid
+FROM buildings_enriched WHERE geom IS NOT NULL;
+CREATE INDEX idx_centroids_geom ON building_centroids USING GIST(centroid);
 
 -- 4. 에너지 시뮬레이션 결과
 CREATE TABLE energy_results (
@@ -327,7 +355,45 @@ CREATE TABLE building_archetypes (
 );
 ```
 
-#### 3.2.2 PNU 매칭 전략
+#### 3.2.2 화재 안전 테이블 (Phase F0/F1 — `db/fire_risk.sql`, `db/fire_safety_f1.sql`)
+
+```sql
+-- 화재 위험도 Materialized View (770,909건, 평균 52.5점)
+CREATE MATERIALIZED VIEW building_fire_risk AS
+    -- 구조(40) + 연령(30) + 용도(20) + 층수(10) 점수 합산
+    ...;
+CREATE INDEX idx_fire_risk_pnu   ON building_fire_risk(pnu);
+CREATE INDEX idx_fire_risk_grade ON building_fire_risk(risk_grade);
+
+-- 인접 건물 그래프 (25m 이내)
+CREATE TABLE building_adjacency (
+    source_pnu  VARCHAR(25) NOT NULL,
+    target_pnu  VARCHAR(25) NOT NULL,
+    distance_m  REAL NOT NULL,
+    PRIMARY KEY (source_pnu, target_pnu)
+);
+
+-- 서울 소방서 25개소
+CREATE TABLE fire_stations (
+    id           SERIAL PRIMARY KEY,
+    name         VARCHAR(100),
+    station_type VARCHAR(50),
+    district     VARCHAR(20),
+    geom         GEOMETRY(Point, 4326)
+);
+
+-- DBSCAN 고위험 밀집 클러스터 (eps=100m, min=5건물)
+CREATE TABLE fire_risk_clusters (
+    id             SERIAL PRIMARY KEY,
+    cluster_id     INTEGER,
+    risk_level     VARCHAR(10),
+    building_count INTEGER,
+    avg_risk_score REAL,
+    geom           GEOMETRY
+);
+```
+
+#### 3.2.3 PNU 매칭 전략
 
 ```
 PNU 코드 구조 (19자리):
