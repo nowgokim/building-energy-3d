@@ -1,8 +1,9 @@
 # RFC: 화재 안전 확장 (Fire Safety Extension)
 
-**문서 버전**: 1.0
+**문서 버전**: 1.1
 **작성일**: 2026-03-24
-**상태**: Draft
+**최종 업데이트**: 2026-03-25
+**상태**: Phase F0/F1 구현 완료 — 실제 구현 기준으로 업데이트됨
 **관련 문서**: [PRD](./PRD.md) | [Architecture](./ARCHITECTURE.md) | [RFC-Data-Pipeline](./RFC-DATA-PIPELINE.md) | [RFC-Energy-Simulation](./RFC-ENERGY-SIMULATION.md)
 **대상 지역**: 서울특별시 (766,386동 footprint 기준)
 
@@ -70,13 +71,15 @@ building_fire_risk       -- Materialized View: F0 위험 점수
 #### 3.2.1 building_adjacency — 인접 건물 그래프
 
 ```sql
+-- ✅ 실제 구현 (db/fire_safety_f1.sql)
 CREATE TABLE building_adjacency (
-    source_pnu  VARCHAR(19) NOT NULL,
-    target_pnu  VARCHAR(19) NOT NULL,
+    source_pnu  VARCHAR(25) NOT NULL,
+    target_pnu  VARCHAR(25) NOT NULL,
     distance_m  REAL        NOT NULL,
-    shared_edge BOOLEAN     DEFAULT FALSE,
     PRIMARY KEY (source_pnu, target_pnu)
 );
+-- 주의: shared_edge 컬럼은 F1에서 제외됨 (F2 구현 시 추가 예정)
+-- PNU 길이: 19자리 고정→최대 25자리로 완화 (집합건물 코드 고려)
 
 CREATE INDEX idx_adjacency_source ON building_adjacency(source_pnu);
 CREATE INDEX idx_adjacency_target ON building_adjacency(target_pnu);
@@ -105,14 +108,17 @@ CREATE INDEX idx_fire_stations_geom ON fire_stations USING GIST(geom);
 #### 3.2.3 fire_risk_clusters — 고위험 클러스터
 
 ```sql
+-- ✅ 실제 구현 (db/fire_safety_f1.sql)
 CREATE TABLE fire_risk_clusters (
     cluster_id      INTEGER      NOT NULL,
-    risk_level      VARCHAR(10)  NOT NULL,  -- 'CRITICAL' | 'HIGH' | 'MEDIUM'
+    risk_level      VARCHAR(10)  NOT NULL,  -- 'HIGH' | 'MEDIUM' | 'LOW'
     building_count  INTEGER      NOT NULL,
     avg_risk_score  REAL,
-    geom            GEOMETRY(MultiPolygon, 4326) NOT NULL,
+    geom            GEOMETRY(Polygon, 4326),  -- ConvexHull (MultiPolygon → Polygon)
     computed_at     TIMESTAMP    DEFAULT NOW()
 );
+-- 주의: risk_level은 CRITICAL 없음. HIGH(avg≥60)/MEDIUM(avg≥35)/LOW 3단계
+-- geom: ST_ConvexHull(ST_Collect()) 결과이므로 Polygon 타입
 
 CREATE INDEX idx_fire_clusters_geom ON fire_risk_clusters USING GIST(geom);
 ```
@@ -122,67 +128,98 @@ CREATE INDEX idx_fire_clusters_geom ON fire_risk_clusters USING GIST(geom);
 ST_ClusterDBSCAN을 사용하여 HIGH 이상 위험 건물(점수 ≥ 60)의 공간 군집을 계산한다.
 
 ```sql
--- 클러스터 계산 (Celery 태스크로 주기적 실행)
-INSERT INTO fire_risk_clusters (cluster_id, risk_level, building_count, avg_risk_score, geom)
-SELECT
-    cluster_id,
-    CASE
-        WHEN avg_score >= 80 THEN 'CRITICAL'
-        WHEN avg_score >= 60 THEN 'HIGH'
-        ELSE 'MEDIUM'
-    END AS risk_level,
-    cnt,
-    avg_score,
-    ST_ConvexHull(ST_Collect(geom)) AS geom
-FROM (
+-- ✅ 실제 구현 — src/fire_safety/tasks.py compute_fire_clusters()
+-- Celery 태스크: POST /api/v1/fire/clusters/compute 로 트리거
+INSERT INTO fire_risk_clusters
+    (cluster_id, risk_level, building_count, avg_risk_score, geom)
+WITH clustered AS (
     SELECT
-        ST_ClusterDBSCAN(c.geom, eps := 0.0005, minpoints := 3)
-            OVER () AS cluster_id,
-        r.risk_score,
-        c.geom
-    FROM building_centroids c
-    JOIN building_fire_risk r USING (pnu)
-    WHERE r.risk_score >= 60
-) sub
-WHERE cluster_id IS NOT NULL
-GROUP BY cluster_id
-HAVING COUNT(*) >= 3;
+        r.pnu, r.total_score, r.risk_grade, b.geom,
+        ST_ClusterDBSCAN(b.geom, eps := :eps_deg, minpoints := :min_pts)
+            OVER () AS cid
+    FROM building_fire_risk r
+    JOIN buildings_enriched b ON r.pnu = b.pnu
+    WHERE r.total_score >= :min_score  -- 기본값 60
+      AND b.geom IS NOT NULL
+)
+SELECT
+    cid AS cluster_id,
+    CASE
+        WHEN AVG(total_score) >= 60 THEN 'HIGH'
+        WHEN AVG(total_score) >= 35 THEN 'MEDIUM'
+        ELSE 'LOW'
+    END AS risk_level,
+    COUNT(*) AS building_count,
+    AVG(total_score)::REAL AS avg_risk_score,
+    ST_ConvexHull(ST_Collect(geom)) AS geom
+FROM clustered
+WHERE cid IS NOT NULL
+GROUP BY cid
+HAVING COUNT(*) >= :min_pts;
 ```
 
-`eps=0.0005`는 위도 기준 약 55m에 해당한다. 서울 구도심 골목길 단위로 클러스터가 형성되도록 조정된 값이다.
+**실제 파라미터 (기본값)**: eps_m=100, min_pts=5, min_score=60
+- `eps_deg = eps_m / (111000 × cos(37.5°))` ≈ 0.00114° (서울 위도 보정)
+- 서울 전역 HIGH 건물 40,354개 대상 → **991개 클러스터** 생성 (2026-03-25)
 
-### 3.4 신규 API 엔드포인트
+### 3.4 신규 API 엔드포인트 (✅ 구현 완료)
 
-| 메서드 | 경로 | 설명 |
-|--------|------|------|
-| GET | `/api/v1/fire/clusters` | 뷰포트 내 고위험 클러스터 목록 (GeoJSON) |
-| GET | `/api/v1/fire/stations` | 소방서·안전센터 위치 목록 |
-| GET | `/api/v1/fire/coverage/{pnu}` | 특정 건물까지 최인접 소방서 도달 시간 추정 |
+| 메서드 | 경로 | 설명 | 구현 위치 |
+|--------|------|------|---------|
+| GET | `/api/v1/fire/risk` | 뷰포트 내 건물 위험도 목록 (히트맵용, max 5000) | F0 |
+| GET | `/api/v1/fire/risk/{pnu}` | 단일 건물 위험도 상세 | F0 |
+| GET | `/api/v1/fire/stats` | 등급별 통계 | F0 |
+| GET | `/api/v1/fire/stations` | 소방서 위치 목록 (bbox 필터 지원) | F1 |
+| GET | `/api/v1/fire/clusters` | 고위험 클러스터 목록 (bbox/risk_level 필터, max 2000) | F1 |
+| GET | `/api/v1/fire/coverage/{pnu}` | 최인접 소방서 3개 + 응답시간 추정 | F1 |
+| GET | `/api/v1/fire/adjacency/{pnu}` | 인접 건물 목록 (max 50) | F1 |
+| POST | `/api/v1/fire/adjacency/build` | 인접 그래프 Celery 태스크 트리거 | F1 |
+| POST | `/api/v1/fire/clusters/compute` | 클러스터 재계산 Celery 태스크 트리거 | F1 |
 
-`/fire/coverage/{pnu}` 응답 예시:
+`/fire/coverage/{pnu}` 실제 응답 예시:
 
 ```json
 {
   "pnu": "1144010100100010000",
-  "nearest_station": {
-    "id": 12,
-    "name": "마포소방서",
-    "distance_m": 1240,
-    "estimated_minutes": 4.2
-  },
-  "ladder_accessible": true,
-  "building_height_m": 18.5
+  "nearest_stations": [
+    {
+      "id": 5,
+      "name": "마포소방서",
+      "district": "마포구",
+      "type": "fire_station",
+      "distance_m": 1240,
+      "est_response_min": 2.5,
+      "lng": 126.9025,
+      "lat": 37.5577
+    },
+    { "id": 3, "name": "서대문소방서", "est_response_min": 3.8, ... },
+    { "id": 7, "name": "은평소방서", "est_response_min": 5.1, ... }
+  ]
 }
 ```
 
-도달 시간 추정은 직선 거리 기반 단순 모델(v = 30 km/h 가정)이다. F3에서 pgRouting 도로망 기반으로 교체된다.
+도달 시간 추정: 직선 거리 ÷ (30 km/h) = 분 단위. F3에서 pgRouting 도로망 기반으로 교체 예정.
+`ladder_accessible`, `building_height_m`은 F2에서 추가 예정.
 
-### 3.5 프론트엔드
+### 3.5 프론트엔드 (✅ 구현 완료)
 
-VWorld 뷰어(`vworld.html`)에 두 레이어를 추가한다.
+VWorld 뷰어(`frontend/vworld.html`)에 4개 레이어 버튼을 세로 단일 열로 배치:
 
-- **클러스터 레이어**: `fire_risk_clusters` GeoJSON을 CesiumJS `DataSource`로 렌더링. CRITICAL은 빨간색, HIGH는 주황색 반투명 폴리곤
-- **소방서 레이어**: `fire_stations`를 소방차 아이콘 빌보드로 표시. 클릭 시 사다리 높이·차량 수 패널 노출
+| 버튼 | 기능 | 구현 방식 |
+|------|------|---------|
+| 🎨 면 텍스처 | VWorld LoD3-4 텍스처 토글 | ws3d.map.setLayerVisible() |
+| 🔥 화재위험도 | 건물별 위험 점수 히트맵 | Cesium Polygon + 고도<5km 시 자동 재로드 |
+| 🔴 화재 취약 밀집구역 | 클러스터 폴리곤 오버레이 | extrudedHeight:120, ConvexHull Polygon |
+| 🚒 소방서 위치 | 소방서 마커 | SVG encodeURIComponent 빌보드 |
+
+**화재위험도 범례**: 화면 왼쪽 하단(`bottom:40px, left:12px`) — 버튼 그룹과 분리된 위치
+
+**색상 코딩**:
+- HIGH(≥60): `#ff4444` (빨강) — 클러스터: `rgba(255,34,34,0.50)`, extrudedHeight 120m
+- MEDIUM(35~59): `#ff8c00` (주황) — 클러스터: `rgba(255,140,0,0.40)`
+- LOW(<35): `#22c55e` (초록)
+
+**클릭 → 상세 패널**: PNU 기준 화재 위험도 상세 + 최근접 소방서 응답시간 (색상: ≤5분 초록/≤10분 주황/>10분 빨강)
 
 ---
 
