@@ -482,3 +482,103 @@ def collect_mapo_title(api_key: str, db_url: str) -> Dict[str, Any]:
     }
     logger.info("표제부 collection complete. Total: %d, Failed: %d", total_records, len(failed_bdongs))
     return stats
+
+
+# ---------------------------------------------------------------------------
+# 부천시 (경기 41190) 건축물대장 수집
+# ---------------------------------------------------------------------------
+# 부천시 법정동은 행정구(41195/41197/41199) 하위가 아닌 41190 직속 24개 동으로 편제.
+# (2016년 책임읍면동제 시행 이후, 2024.1.1 행정구 부활 후에도 법정동 코드 체계는 유지)
+# PublicDataReader code_bdong(41195) 등을 사용하면 0건 반환 — 이 코드 목록을 직접 사용해야 함.
+
+BUCHEON_SIGUNGU_CODE = "41190"
+
+BUCHEON_BDONG_CODES: List[str] = [
+    "10100",  # 원미동
+    "10200",  # 심곡동
+    "10300",  # 춘의동
+    "10400",  # 도당동
+    "10500",  # 약대동
+    "10600",  # 소사동
+    "10700",  # 역곡동
+    "10800",  # 중동
+    "10900",  # 상동
+    "11000",  # 소사본동
+    "11100",  # 심곡본동
+    "11200",  # 범박동
+    "11300",  # 괴안동
+    "11400",  # 송내동
+    "11500",  # 옥길동
+    "11600",  # 계수동
+    "11700",  # 오정동
+    "11800",  # 여월동
+    "11900",  # 작동
+    "12000",  # 원종동
+    "12100",  # 고강동
+    "12200",  # 대장동
+    "12300",  # 삼정동
+    "12400",  # 내동
+]
+
+
+def collect_bucheon_ledger(api_key: str, db_url: str) -> Dict[str, Any]:
+    """Collect 총괄표제부 + 표제부 for 부천시 (경기, sigungu 41190).
+
+    부천시 법정동은 41190 직속 24개 동. 행정구 코드(41195/41197/41199) 사용 불가.
+    수집 완료 후 buildings_enriched MV REFRESH 필요.
+    """
+    logger.info("Starting 부천시 ledger collection (%d 법정동)", len(BUCHEON_BDONG_CODES))
+    engine = create_engine(db_url)
+    total_records = 0
+    failed_bdongs: list[str] = []
+
+    for idx, bdong_code in enumerate(BUCHEON_BDONG_CODES, start=1):
+        for ledger_fetch, ledger_label in [
+            (_fetch_ledger_page, "총괄표제부"),
+            (_fetch_title_page, "표제부"),
+        ]:
+            try:
+                all_items: list[dict] = []
+                page = 1
+                while True:
+                    items, total_count = ledger_fetch(
+                        api_key, BUCHEON_SIGUNGU_CODE, bdong_code, page=page
+                    )
+                    if not items:
+                        break
+                    all_items.extend(items)
+                    if len(all_items) >= total_count:
+                        break
+                    page += 1
+                    time.sleep(0.3)
+
+                if not all_items:
+                    time.sleep(0.2)
+                    continue
+
+                if ledger_label == "총괄표제부":
+                    df = _items_to_dataframe(all_items)
+                    table_name = "building_ledger"
+                else:
+                    records = _title_items_to_updates(all_items)
+                    df = pd.DataFrame(records)
+                    table_name = "building_ledger"
+
+                df.to_sql(
+                    name=table_name, con=engine, if_exists="append",
+                    index=False, method="multi", chunksize=500,
+                )
+                total_records += len(df)
+                logger.info("[%d/%d] %s %s %d건 (누적: %d건)",
+                            idx, len(BUCHEON_BDONG_CODES), bdong_code, ledger_label, len(df), total_records)
+
+            except Exception:
+                logger.exception("Failed %s/%s (%s)", BUCHEON_SIGUNGU_CODE, bdong_code, ledger_label)
+                failed_bdongs.append(f"{bdong_code}/{ledger_label}")
+
+            time.sleep(0.3)
+
+    engine.dispose()
+    stats = {"total_records": total_records, "failed_bdongs": failed_bdongs}
+    logger.info("부천시 collection complete. Total: %d, Failed: %d", total_records, len(failed_bdongs))
+    return stats

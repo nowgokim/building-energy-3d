@@ -10,7 +10,7 @@
 |------|------|------|
 | `docs/` | ✅ 100% | PRD v1.2, Architecture v1.2, RFC 문서 |
 | `docker-compose.yml` | ✅ 100% | PostGIS(5434), Redis(6379), API(8000), Worker |
-| `src/data_ingestion/` | ✅ 98% | VWorld **766,386건**(footprint) · 건축물대장 **1,160,817건**(25개 구) · **Tier1** 실측 89건 · **Tier2** 인증/등급 3,588건(KEA 3,192+등급 396, pg_trgm 재수집 완료) · **Tier4** 아키타입. upsert guard: `WHERE data_tier >= EXCLUDED.data_tier` |
+| `src/data_ingestion/` | ⚠️ 97% | VWorld **766,386건**(footprint) · 건축물대장 **1,160,817건**(서울 25개 구) · **Tier1** 실측 89건 · **Tier2** 인증/등급 3,588건 · **Tier4** 아키타입. ⚠️ **부천시(41190) 미수집** — 약 70K건 미분류(KI-002) |
 | `src/geometry/` | ✅ 100% | PNU 생성/파싱, 좌표 변환 (EPSG:5174→4326) |
 | `src/simulation/` | ⚠️ 40% | archetype **83종** (9용도×4연대×2~3구조) + 에너지 추정. EnergyPlus/ML 미연동 |
 | `src/simulation/ml_xgboost.py` | ✅ 100% | Tier A/B XGBoost EUI 예측 (Tier1×5 가중치, StratifiedKFold, 예측구간) |
@@ -76,6 +76,27 @@ docker compose exec db psql -U postgres -d buildings -f /docker-entrypoint-initd
 | Phase 5 | 시간대 애니메이션 + 건물 비교 + ZEB 전환 지도 + 전국 확장 |
 
 **화재 안전 관련 문서**: [PRD-FIRE-SAFETY.md](./docs/PRD-FIRE-SAFETY.md) · [RFC-FIRE-SAFETY.md](./docs/RFC-FIRE-SAFETY.md) · [FIRE-SAFETY-WORKPLAN.md](./docs/FIRE-SAFETY-WORKPLAN.md)
+
+### ⚠️ 미해결 데이터 품질 과제 → [docs/KNOWN_ISSUES.md](./docs/KNOWN_ISSUES.md)
+
+| ID | 내용 | 건수 | 해결 난이도 |
+|----|------|------|------------|
+| KI-001 | 용도 '미분류' 건물 (서울 미등록 건물) | ~116K | ❌ 데이터 근본 부재 |
+| **KI-002** | **부천시(41190) 건축물대장 미수집** | **~70K** | **✅ `collect_bucheon_ledger()` 실행** |
+| KI-003 | 이상 데이터 (built_year/height 오기입 등) | 46+1+62건 | △ views.sql CASE 추가 |
+| KI-004 | filter-result-badge z-index 겹침 | UI | △ CSS 1줄 수정 |
+
+**KI-002 수집 명령**:
+```bash
+python -c "
+from src.data_ingestion.collect_ledger import collect_bucheon_ledger
+import os
+collect_bucheon_ledger(os.environ['DATA_GO_KR_API_KEY'], os.environ['DATABASE_URL'])
+"
+# 수집 후 MV REFRESH
+docker compose exec db psql -U postgres -d buildings -c "REFRESH MATERIALIZED VIEW CONCURRENTLY buildings_enriched;"
+docker compose exec db psql -U postgres -d buildings -c "REFRESH MATERIALIZED VIEW CONCURRENTLY building_fire_risk;"
+```
 
 ## ⚠️ 변경 관리 원칙 (수정 전 필독)
 
