@@ -421,8 +421,13 @@
     <h2 id="p-name">건물 정보</h2>
     <div class="metrics">
       <div class="metric"><div class="value" id="p-grade">-</div><div class="label">에너지등급</div></div>
-      <div class="metric"><div class="value" id="p-energy">-</div><div class="label">kWh/m²</div></div>
+      <div class="metric"><div class="value" id="p-energy">-</div><div class="label">EUI kWh/m²</div></div>
       <div class="metric"><div class="value" id="p-area">-</div><div class="label">m² 연면적</div></div>
+    </div>
+    <div class="metrics" id="p-carbon-row" style="display:none">
+      <div class="metric"><div class="value" id="p-co2">-</div><div class="label">kgCO₂/m²·yr</div></div>
+      <div class="metric"><div class="value" id="p-pe">-</div><div class="label">1차에너지 kWh/m²</div></div>
+      <div class="metric"><div class="value" id="p-pe-zeb">-</div><div class="label">ZEB 목표 대비</div></div>
     </div>
     <div id="p-data-source" style="margin:6px 0 4px;font-size:11px;"></div>
     <dl class="info">
@@ -1180,7 +1185,8 @@
       const p = detail.properties;
       document.getElementById("p-name").textContent = p.building_name || "건물 정보";
       document.getElementById("p-grade").textContent = p.energy_grade || "-";
-      document.getElementById("p-energy").textContent = p.total_energy ? Math.round(p.total_energy) : "-";
+      const eui = p.energy ? p.energy.eui_kwh_m2 : null;
+      document.getElementById("p-energy").textContent = eui != null ? eui.toFixed(1) : (p.total_energy ? Math.round(p.total_energy) : "-");
 
       // 데이터 출처 배지
       const TIER_INFO = {
@@ -1212,6 +1218,27 @@
         p.floors_above ? "지상 " + p.floors_above + "층 / 지하 " + (p.floors_below || 0) + "층" : "-";
       document.getElementById("p-height").textContent = p.height ? p.height.toFixed(1) + "m" : "-";
       document.getElementById("p-year").textContent = p.built_year || "-";
+
+      // CO2 + 1차에너지 메트릭
+      const carbonRow = document.getElementById("p-carbon-row");
+      if (p.energy && (p.energy.co2_kg_m2 != null || p.energy.primary_energy_kwh_m2 != null)) {
+        const co2 = p.energy.co2_kg_m2;
+        const pe  = p.energy.primary_energy_kwh_m2;
+        document.getElementById("p-co2").textContent = co2 != null ? co2.toFixed(1) : "-";
+        document.getElementById("p-pe").textContent  = pe  != null ? pe.toFixed(1)  : "-";
+        // ZEB 목표: 1차에너지 150 kWh/m²·yr (에너지절약설계기준 2025)
+        if (pe != null) {
+          const ratio = pe / 150 * 100;
+          const zebColor = ratio <= 100 ? "#16a34a" : ratio <= 150 ? "#ca8a04" : "#dc2626";
+          document.getElementById("p-pe-zeb").innerHTML =
+            `<span style="color:${zebColor};font-size:12px">${ratio.toFixed(0)}%</span>`;
+        } else {
+          document.getElementById("p-pe-zeb").textContent = "-";
+        }
+        carbonRow.style.display = "";
+      } else {
+        carbonRow.style.display = "none";
+      }
 
       // Energy breakdown chart
       if (p.energy) {

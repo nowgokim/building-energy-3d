@@ -326,6 +326,8 @@ def get_building_detail(
             er.ventilation,
             er.data_tier,
             er.simulation_type,
+            er.co2_kg_m2,
+            er.primary_energy_kwh_m2,
             ST_AsGeoJSON(b.geom)::json AS geometry,
             ST_X(ST_Centroid(b.geom)) AS lng,
             ST_Y(ST_Centroid(b.geom)) AS lat
@@ -363,13 +365,22 @@ def get_building_detail(
 
     # Attach energy breakdown + provenance if available
     if row.total_energy is not None:
+        total_e = float(row.total_energy)
+        area = float(row.total_area) if row.total_area else None
+        # total_energy는 archetype/Tier1/2/4에서는 EUI(kWh/m²/yr),
+        # Tier C(tier_c_metered)에서는 절대값(kWh/yr)
+        is_tier_c = row.simulation_type == "tier_c_metered"
+        eui = round(total_e / area, 1) if (is_tier_c and area) else total_e
         result["properties"]["energy"] = {
-            "total_energy": float(row.total_energy),
+            "total_energy": total_e,
+            "eui_kwh_m2": eui,
             "heating": float(row.heating) if row.heating else None,
             "cooling": float(row.cooling) if row.cooling else None,
             "hot_water": float(row.hot_water) if row.hot_water else None,
             "lighting": float(row.lighting) if row.lighting else None,
             "ventilation": float(row.ventilation) if row.ventilation else None,
+            "co2_kg_m2": float(row.co2_kg_m2) if row.co2_kg_m2 is not None else None,
+            "primary_energy_kwh_m2": float(row.primary_energy_kwh_m2) if row.primary_energy_kwh_m2 is not None else None,
             "data_tier": row.data_tier,
             "simulation_type": row.simulation_type,
         }
