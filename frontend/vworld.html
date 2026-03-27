@@ -440,6 +440,16 @@
     </dl>
     <div id="p-energy-chart"></div>
     <div id="p-fire-risk" style="display:none;border-top:1px solid #eee;padding-top:8px;margin-top:6px;"></div>
+    <div id="p-retrofit" style="display:none;border-top:1px solid #eee;padding-top:8px;margin-top:6px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <span style="font-size:11px;font-weight:600;color:#555">🔧 리트로핏 시뮬레이션</span>
+        <button onclick="loadRetrofit()" id="retrofit-btn"
+          style="font-size:10px;padding:2px 8px;border:1px solid #4a9eff;background:#fff;color:#4a9eff;border-radius:4px;cursor:pointer">
+          계산하기
+        </button>
+      </div>
+      <div id="retrofit-result"></div>
+    </div>
   </div>
 
   <!-- Stats -->
@@ -1181,8 +1191,15 @@
     }
 
     // --- Panel ---
+    let _panelPnu = null;
+
     function showPanel(detail) {
       const p = detail.properties;
+      _panelPnu = p.pnu || null;
+      // 리트로핏 패널 초기화
+      document.getElementById("retrofit-result").innerHTML = "";
+      document.getElementById("p-retrofit").style.display =
+        (p.energy && p.energy.eui_kwh_m2 != null) ? "" : "none";
       document.getElementById("p-name").textContent = p.building_name || "건물 정보";
       document.getElementById("p-grade").textContent = p.energy_grade || "-";
       const eui = p.energy ? p.energy.eui_kwh_m2 : null;
@@ -1269,6 +1286,50 @@
       }
 
       document.getElementById("panel").style.display = "block";
+    }
+
+    async function loadRetrofit() {
+      if (!_panelPnu) return;
+      const btn = document.getElementById("retrofit-btn");
+      const el  = document.getElementById("retrofit-result");
+      btn.disabled = true;
+      btn.textContent = "계산 중…";
+      el.innerHTML = '<div style="font-size:11px;color:#aaa;padding:4px 0">로딩 중…</div>';
+      try {
+        const res  = await fetch(API + "/buildings/" + _panelPnu + "/retrofit");
+        if (!res.ok) throw new Error(await res.text());
+        const data = res.ok ? await res.json() : null;
+        if (!data) throw new Error("No data");
+        const c = data.combined;
+        const fmtKrw = v => v >= 1e8
+          ? (v / 1e8).toFixed(1) + "억"
+          : v >= 1e4
+            ? Math.round(v / 1e4) + "만"
+            : v + "";
+        // 복합 요약 바
+        el.innerHTML =
+          `<div style="background:#f0f9ff;border-radius:6px;padding:6px 8px;margin-bottom:6px;font-size:11px">` +
+          `<div style="display:flex;justify-content:space-between;margin-bottom:2px">` +
+          `<span>EUI: <b>${c.eui_before}</b> → <b style="color:#16a34a">${c.eui_after}</b> kWh/m²</span>` +
+          `<span style="color:#16a34a;font-weight:600">-${c.saving_pct}%</span></div>` +
+          `<div style="display:flex;justify-content:space-between">` +
+          `<span>시공비 ${fmtKrw(c.cost_total_krw)}원 · 절감 ${fmtKrw(c.annual_saving_krw)}원/yr</span>` +
+          `<span>회수 ${c.payback_years ?? "—"}yr</span></div></div>` +
+          // 개별 조치 행
+          data.measures.map(m =>
+            `<div style="display:flex;align-items:center;gap:4px;padding:3px 0;border-bottom:1px solid #f3f4f6;font-size:11px">` +
+            `<span style="flex:1;color:#444">${m.label.split("(")[0].trim()}</span>` +
+            `<span style="color:#16a34a;width:52px;text-align:right">-${m.eui_saving_kwh_m2}</span>` +
+            `<span style="color:#666;width:48px;text-align:right">${m.payback_years ?? "—"}yr</span>` +
+            `</div>`
+          ).join("") +
+          `<div style="font-size:9px;color:#aaa;margin-top:4px">단가 기준 추정값. 실제 공사비 상이할 수 있음.</div>`;
+      } catch (e) {
+        el.innerHTML = `<div style="font-size:11px;color:#ef4444">${e.message}</div>`;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "재계산";
+      }
     }
 
     function closePanel() {

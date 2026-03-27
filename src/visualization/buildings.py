@@ -15,6 +15,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from src.shared.database import get_db_dependency
+from src.simulation.retrofit import ALL_MEASURE_IDS, simulate_retrofit
 
 logger = logging.getLogger(__name__)
 
@@ -388,3 +389,105 @@ def get_building_detail(
     result["properties"]["simulation_type"] = row.simulation_type
 
     return result
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# GET /api/v1/buildings/{pnu}/retrofit
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get("/{pnu}/retrofit")
+def get_retrofit_simulation(
+    pnu: str,
+    measures: str = Query(
+        default="",
+        description="쉼표 구분 조치 ID. 비어있으면 전체 적용. "
+                    f"선택 가능: {','.join(ALL_MEASURE_IDS)}",
+    ),
+    db: Session = Depends(get_db_dependency),
+) -> dict:
+    """건물 리트로핏 비용·효과 추정.
+
+    현재 EUI·CO2 기준으로 각 개선 조치(창호 교체, 단열 강화, LED, HVAC)의
+    에너지 절감량·CO2 저감량·시공비·단순회수기간을 반환.
+
+    - **measures**: 쉼표 구분 조치 ID (예: `window,led_lighting`). 생략 시 전체.
+    - EUI는 energy_results 실측/추정 값을 사용.
+    - 면적 없는 건물은 총비용·회수기간 = null.
+    """
+    if not re.match(r"^\d{19,25}$", pnu):
+        raise HTTPException(status_code=400, detail="Invalid PNU format")
+
+    sql = text("""
+        SELECT
+            b.pnu, b.usage_type, b.vintage_class, b.total_area,
+            er.total_energy, er.co2_kg_m2, er.simulation_type
+        FROM buildings_enriched b
+        LEFT JOIN energy_results er ON b.pnu = er.pnu AND er.is_current = TRUE
+        WHERE b.pnu = :pnu
+    """)
+    row = db.execute(sql, {"pnu": pnu}).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"Building {pnu} not found")
+    if row.total_energy is None:
+        raise HTTPException(
+            status_code=422,
+            detail="Energy data not available for this building",
+        )
+
+    # EUI 결정
+    is_tier_c = row.simulation_type == "tier_c_metered"
+    area = float(row.total_area) if row.total_area else None
+    total_e = float(row.total_energy)
+    eui = round(total_e / area, 1) if (is_tier_c and area) else total_e
+    if eui <= 0:
+        raise HTTPException(status_code=422, detail="EUI must be positive")
+
+    selected = [m.strip() for m in measures.split(",") if m.strip()] or None
+
+    result = simulate_retrofit(
+        pnu=pnu,
+        eui_kwh_m2=eui,
+        co2_kg_m2=float(row.co2_kg_m2) if row.co2_kg_m2 is not None else None,
+        total_area_m2=area,
+        vintage_class=row.vintage_class,
+        usage_type=row.usage_type,
+        selected_measures=selected,
+    )
+
+    return {
+        "pnu": result.pnu,
+        "building": {
+            "eui_kwh_m2": result.eui_before,
+            "co2_kg_m2": result.co2_before_kg_m2,
+            "total_area_m2": result.total_area_m2,
+            "vintage_class": result.vintage_class,
+            "usage_type": row.usage_type,
+        },
+        "measures": [
+            {
+                "id": m.id,
+                "label": m.label,
+                "description": m.description,
+                "eui_saving_kwh_m2": m.eui_saving_kwh_m2,
+                "saving_pct": round(m.saving_pct * 100, 1),
+                "co2_saving_kg_m2": m.co2_saving_kg_m2,
+                "cost_per_m2": m.cost_per_m2,
+                "cost_total_krw": m.cost_total_krw,
+                "annual_saving_krw": m.annual_saving_krw,
+                "payback_years": m.payback_years,
+            }
+            for m in result.measures
+        ],
+        "combined": {
+            "eui_before": result.eui_before,
+            "eui_after": result.eui_after,
+            "eui_saving_kwh_m2": result.eui_saving_kwh_m2,
+            "saving_pct": round(result.saving_pct * 100, 1),
+            "co2_before_kg_m2": result.co2_before_kg_m2,
+            "co2_after_kg_m2": result.co2_after_kg_m2,
+            "co2_saving_kg_m2": result.co2_saving_kg_m2,
+            "cost_total_krw": result.cost_total_krw,
+            "annual_saving_krw": result.annual_saving_krw,
+            "payback_years": result.payback_years,
+        },
+    }
