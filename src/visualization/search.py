@@ -116,7 +116,8 @@ def _filtered_rows(db: Session, filters: FilterRequest) -> tuple[list, int]:
             ST_Y(ST_Centroid(b.geom)) AS lat
         FROM buildings_enriched b
         LEFT JOIN LATERAL (
-            SELECT total_energy FROM energy_results WHERE pnu = b.pnu AND is_current = TRUE LIMIT 1
+            SELECT total_energy, co2_kg_m2
+            FROM energy_results WHERE pnu = b.pnu AND is_current = TRUE LIMIT 1
         ) er ON true
         {where_clause}
         LIMIT 1000
@@ -220,11 +221,63 @@ def filter_buildings(
             "structure_type": r.structure_type,
             "energy_grade": r.energy_grade,
             "total_energy": float(r.total_energy) if r.total_energy else None,
+            "co2_kg_m2": float(r.co2_kg_m2) if r.co2_kg_m2 is not None else None,
             "lng": float(r.lng) if r.lng else None,
             "lat": float(r.lat) if r.lat else None,
         })
 
     return {"count": len(features), "total_count": total_count, "buildings": features}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# GET /api/v1/overlay/co2  — 뷰포트 CO2 오버레이 (최대 5,000건)
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get("/overlay/co2")
+def co2_overlay(
+    west:  float = Query(...),
+    south: float = Query(...),
+    east:  float = Query(...),
+    north: float = Query(...),
+    db: Session = Depends(get_db_dependency),
+) -> dict:
+    """뷰포트 내 CO2 강도 오버레이용 건물 포인트 반환.
+
+    - co2_kg_m2: kgCO₂eq/m²/yr (배출계수 전력 0.4781 · 가스 0.2036 · 지역난방 0.1218)
+    - pe_kwh_m2: 1차에너지 강도 kWh/m²/yr (ZEB 지표)
+    - 최대 5,000건. 고도별 축소 표시 권장.
+    """
+    sql = text("""
+        SELECT
+            bc.pnu,
+            ST_X(bc.centroid) AS lng,
+            ST_Y(bc.centroid) AS lat,
+            er.co2_kg_m2,
+            er.primary_energy_kwh_m2  AS pe_kwh_m2
+        FROM building_centroids bc
+        JOIN energy_results er ON er.pnu = bc.pnu AND er.is_current = TRUE
+        WHERE er.co2_kg_m2 IS NOT NULL
+          AND ST_Within(
+              bc.centroid,
+              ST_MakeEnvelope(:west, :south, :east, :north, 4326)
+          )
+        ORDER BY er.co2_kg_m2 DESC
+        LIMIT 5000
+    """)
+    rows = db.execute(sql, {"west": west, "south": south, "east": east, "north": north}).fetchall()
+    return {
+        "count": len(rows),
+        "features": [
+            {
+                "pnu": r.pnu,
+                "lng": float(r.lng),
+                "lat": float(r.lat),
+                "co2": round(float(r.co2_kg_m2), 1),
+                "pe":  round(float(r.pe_kwh_m2), 1) if r.pe_kwh_m2 else None,
+            }
+            for r in rows
+        ],
+    }
 
 
 @router.get("/filter/export")
@@ -254,7 +307,7 @@ def export_filtered_buildings(
         bbox=bbox,
     )
 
-    rows = _filtered_rows(db, filters)
+    rows, total_count = _filtered_rows(db, filters)
     logger.info("CSV export: %d buildings", len(rows))
 
     # Build CSV in memory

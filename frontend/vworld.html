@@ -97,17 +97,29 @@
     }
     #texture-btn { top: 60px; }
     #fire-btn    { top: 96px; }
-    #cluster-btn { top: 132px; }
-    #station-btn { top: 168px; }
-    #filter-btn  { top: 204px; }
-    #area-btn    { top: 240px; }
-    #mode-btn    { top: 276px; }
+    #co2-btn     { top: 132px; }
+    #cluster-btn { top: 168px; }
+    #station-btn { top: 204px; }
+    #filter-btn  { top: 240px; }
+    #area-btn    { top: 276px; }
+    #mode-btn    { top: 312px; }
     #fire-legend {
       display: none; position: absolute; bottom: 40px; left: 12px; z-index: 100;
       background: rgba(255,255,255,0.93); border-radius: 8px; padding: 8px 12px;
       box-shadow: 0 2px 8px rgba(0,0,0,0.12); font-size: 11px; min-width: 185px;
     }
     #fire-legend .dot { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:4px; vertical-align:middle; }
+
+    #co2-legend {
+      display: none; position: absolute; bottom: 40px; left: 12px; z-index: 100;
+      background: rgba(255,255,255,0.93); border-radius: 8px; padding: 8px 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.12); font-size: 11px; min-width: 200px;
+    }
+    #co2-legend .co2-bar {
+      height: 8px; border-radius: 4px; margin: 4px 0 2px;
+      background: linear-gradient(to right, #22c55e, #f59e0b, #ef4444);
+    }
+    #co2-legend .co2-scale { display: flex; justify-content: space-between; font-size: 9px; color: #888; }
 
     /* 영역 선택 상태 표시 바 */
     #area-status-bar {
@@ -219,6 +231,7 @@
   <!-- 좌측 세로 버튼 그룹 -->
   <button id="texture-btn" class="map-btn" onclick="toggleTexturePanel()">🎨 면 텍스처</button>
   <button id="fire-btn"    class="map-btn" onclick="toggleFireMode()">🔥 화재위험도</button>
+  <button id="co2-btn"     class="map-btn" onclick="toggleCo2Mode()">🌿 CO2 오버레이</button>
   <button id="cluster-btn" class="map-btn" onclick="toggleClusters()" title="화재 위험도 60점 이상 건물이 반경 100m 내 밀집된 구역">🔴 화재 취약 밀집구역</button>
   <button id="station-btn" class="map-btn" onclick="toggleStations()">🚒 소방서 위치</button>
   <button id="filter-btn"  class="map-btn" onclick="toggleFilterPanel()">🔍 필터</button>
@@ -387,6 +400,17 @@
     <div style="margin:3px 0"><span class="dot" style="background:#ff8c00"></span>중위험 (35~59점)</div>
     <div><span class="dot" style="background:#22c55e"></span>저위험 (35점 미만)</div>
     <div id="fire-status" style="margin-top:6px;color:#888;font-size:10px;"></div>
+  </div>
+
+  <!-- CO2 Overlay Legend (co2 mode 활성 시 표시) -->
+  <div id="co2-legend">
+    <div style="font-weight:600;margin-bottom:5px;color:#333">🌿 CO₂ 배출 강도</div>
+    <div class="co2-bar"></div>
+    <div class="co2-scale">
+      <span>낮음 (0)</span><span>20</span><span>60</span><span>높음 (100+)</span>
+    </div>
+    <div style="font-size:10px;color:#555;margin-top:5px">단위: kgCO₂/m²·yr</div>
+    <div id="co2-status" style="margin-top:6px;color:#888;font-size:10px;"></div>
   </div>
 
   <!-- Texture Overlay Panel -->
@@ -693,6 +717,99 @@
         firePointCollection = null;
       }
       document.getElementById('fire-status').textContent = '';
+    }
+
+    // --- CO2 Overlay Layer ---
+    let co2PointCollection = null;
+    let co2Mode = false;
+    let co2MoveEndRemover = null;
+    let co2AbortCtrl = null;
+
+    function co2Color(value) {
+      // 녹색(0~20) → 노랑(20~60) → 빨강(60+)
+      if (value <= 20)  return Cesium.Color.fromCssColorString('#22c55e').withAlpha(0.85);
+      if (value <= 40)  return Cesium.Color.fromCssColorString('#84cc16').withAlpha(0.85);
+      if (value <= 60)  return Cesium.Color.fromCssColorString('#f59e0b').withAlpha(0.85);
+      if (value <= 80)  return Cesium.Color.fromCssColorString('#f97316').withAlpha(0.85);
+      return Cesium.Color.fromCssColorString('#ef4444').withAlpha(0.90);
+    }
+
+    async function loadCo2Layer() {
+      if (!ws3d?.viewer) return;
+      const viewer = ws3d.viewer;
+      if (co2AbortCtrl) { co2AbortCtrl.abort(); }
+      co2AbortCtrl = new AbortController();
+      const signal = co2AbortCtrl.signal;
+      clearCo2Layer();
+      const camHeight = viewer.camera.positionCartographic.height;
+      if (camHeight > 8000) {
+        document.getElementById('co2-status').textContent = '더 가까이 확대하면 CO₂ 데이터를 표시합니다';
+        if (co2MoveEndRemover) { co2MoveEndRemover(); co2MoveEndRemover = null; }
+        co2MoveEndRemover = viewer.camera.moveEnd.addEventListener(() => {
+          co2MoveEndRemover = null;
+          if (co2Mode) loadCo2Layer();
+        });
+        return;
+      }
+      const rect = viewer.camera.computeViewRectangle();
+      if (!rect) return;
+      const west  = Cesium.Math.toDegrees(rect.west);
+      const south = Cesium.Math.toDegrees(rect.south);
+      const east  = Cesium.Math.toDegrees(rect.east);
+      const north = Cesium.Math.toDegrees(rect.north);
+      document.getElementById('co2-status').textContent = '로딩 중...';
+      try {
+        const resp = await fetch(
+          `${API}/overlay/co2?west=${west}&south=${south}&east=${east}&north=${north}`,
+          { signal }
+        );
+        const data = await resp.json();
+        co2PointCollection = viewer.scene.primitives.add(new Cesium.PointPrimitiveCollection());
+        (data.features || []).forEach(f => {
+          co2PointCollection.add({
+            position: Cesium.Cartesian3.fromDegrees(f.lng, f.lat, 5),
+            color: co2Color(f.co2),
+            pixelSize: f.co2 > 80 ? 10 : 7,
+            outlineColor: Cesium.Color.WHITE.withAlpha(0.4),
+            outlineWidth: 1,
+            disableDepthTestDistance: Number.POSITIVE_INFINITY,
+          });
+        });
+        const highCnt = (data.features || []).filter(f => f.co2 > 60).length;
+        document.getElementById('co2-status').textContent =
+          `조회 ${data.count.toLocaleString()}건 · 고배출 ${highCnt.toLocaleString()}건`;
+      } catch(e) {
+        if (e.name !== 'AbortError') {
+          document.getElementById('co2-status').textContent = '로드 실패: ' + e.message;
+        }
+      }
+    }
+
+    function clearCo2Layer() {
+      if (co2PointCollection) {
+        ws3d.viewer.scene.primitives.remove(co2PointCollection);
+        co2PointCollection = null;
+      }
+      document.getElementById('co2-status').textContent = '';
+    }
+
+    function toggleCo2Mode() {
+      co2Mode = !co2Mode;
+      const btn = document.getElementById('co2-btn');
+      const legend = document.getElementById('co2-legend');
+      if (co2Mode) {
+        btn.textContent = '🌿 CO2 오버레이 ON';
+        btn.style.background = '#16a34a';
+        btn.style.color = '#fff';
+        legend.style.display = 'block';
+        loadCo2Layer();
+      } else {
+        btn.textContent = '🌿 CO2 오버레이';
+        btn.style.background = 'rgba(255,255,255,0.92)';
+        btn.style.color = '#333';
+        legend.style.display = 'none';
+        clearCo2Layer();
+      }
     }
 
     // --- Cluster Layer ---
