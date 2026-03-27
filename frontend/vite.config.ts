@@ -11,6 +11,7 @@ export default defineConfig({
     proxy: {
       "/api": process.env.API_HOST ?? "http://localhost:8000",
       "/tiles": process.env.API_HOST ?? "http://localhost:8000",
+      "/ws": { target: process.env.API_HOST ?? "http://localhost:8000", ws: true },
     },
   },
   appType: "mpa",
@@ -22,6 +23,7 @@ export default defineConfig({
       input: {
         main: "index.html",
         vworld: "vworld.html",
+        monitor: "monitor.html",
       },
       output: {
         manualChunks: {

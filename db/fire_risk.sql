@@ -29,10 +29,16 @@ WITH scored AS (
         CASE
             WHEN usage_type LIKE '%공장%'   OR usage_type LIKE '%창고%'    THEN 20
             WHEN usage_type LIKE '%위험물%'                                THEN 20
+            WHEN usage_type LIKE '%위락%'                                  THEN 15
             WHEN usage_type LIKE '%노유자%' OR usage_type LIKE '%의료%'    THEN 18
             WHEN usage_type LIKE '%숙박%'   OR usage_type LIKE '%고시원%'  THEN 16
+            WHEN usage_type LIKE '%교육%'   OR usage_type LIKE '%문화%'
+              OR usage_type LIKE '%집회%'                                  THEN 14
+            WHEN usage_type LIKE '%단독주택%'                              THEN 12
+            WHEN usage_type LIKE '%종교%'   OR usage_type LIKE '%근린%'    THEN 12
             WHEN usage_type LIKE '%공동주택%' OR usage_type LIKE '%아파트%' THEN 10
-            WHEN usage_type LIKE '%사무%'   OR usage_type LIKE '%업무%'    THEN  8
+            WHEN usage_type LIKE '%사무%'   OR usage_type LIKE '%업무%'
+              OR usage_type LIKE '%판매%'                                  THEN  8
             ELSE                                                                10
         END AS usage_score,
 

@@ -10,6 +10,7 @@ import re
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -46,6 +47,37 @@ def pick_building(
     if row is None:
         return {"pnu": None, "building_name": None}
     return {"pnu": row.pnu, "building_name": row.building_name}
+
+
+class CentroidBatchRequest(BaseModel):
+    pnus: list[str]
+
+
+@router.post("/centroids/batch")
+def batch_centroids(req: CentroidBatchRequest, db: Session = Depends(get_db_dependency)) -> dict:
+    """
+    PNU 목록에 대한 centroid 좌표 일괄 조회 (F2 화재 확산 시뮬레이션 애니메이션용).
+
+    Returns {pnu: str, lng: float, lat: float}[] — 최대 10,000건.
+    """
+    if not req.pnus:
+        return {"count": 0, "centroids": []}
+    if len(req.pnus) > 10_000:
+        raise HTTPException(status_code=400, detail="최대 10,000건까지 조회 가능합니다")
+
+    sql = text("""
+        SELECT DISTINCT ON (pnu) pnu,
+               ST_X(centroid) AS lng,
+               ST_Y(centroid) AS lat
+        FROM building_centroids
+        WHERE pnu = ANY(:pnus)
+        ORDER BY pnu
+    """)
+    rows = db.execute(sql, {"pnus": req.pnus}).fetchall()
+    return {
+        "count": len(rows),
+        "centroids": [{"pnu": r.pnu, "lng": float(r.lng), "lat": float(r.lat)} for r in rows],
+    }
 
 
 @router.get("/centroids")
@@ -110,7 +142,7 @@ def get_building_stats(
             COUNT(*) AS total_count,
             AVG(er.total_energy) AS avg_energy
         FROM buildings_enriched b
-        LEFT JOIN energy_results er ON b.pnu = er.pnu
+        LEFT JOIN energy_results er ON b.pnu = er.pnu AND er.is_current = TRUE
         {bbox_clause}
     """)
     row = db.execute(summary_sql, params).fetchone()
@@ -123,7 +155,7 @@ def get_building_stats(
             COALESCE(b.energy_grade, 'unknown') AS grade,
             COUNT(*) AS cnt
         FROM buildings_enriched b
-        LEFT JOIN energy_results er ON b.pnu = er.pnu
+        LEFT JOIN energy_results er ON b.pnu = er.pnu AND er.is_current = TRUE
         {bbox_clause}
         GROUP BY COALESCE(b.energy_grade, 'unknown')
         ORDER BY grade
@@ -226,7 +258,7 @@ def list_buildings(
             ST_X(ST_Centroid(b.geom)) AS lng,
             ST_Y(ST_Centroid(b.geom)) AS lat
         FROM buildings_enriched b
-        LEFT JOIN energy_results er ON b.pnu = er.pnu
+        LEFT JOIN energy_results er ON b.pnu = er.pnu AND er.is_current = TRUE
         {where_clause}
         LIMIT 5000
     """)
@@ -292,11 +324,13 @@ def get_building_detail(
             er.hot_water,
             er.lighting,
             er.ventilation,
+            er.data_tier,
+            er.simulation_type,
             ST_AsGeoJSON(b.geom)::json AS geometry,
             ST_X(ST_Centroid(b.geom)) AS lng,
             ST_Y(ST_Centroid(b.geom)) AS lat
         FROM buildings_enriched b
-        LEFT JOIN energy_results er ON b.pnu = er.pnu
+        LEFT JOIN energy_results er ON b.pnu = er.pnu AND er.is_current = TRUE
         WHERE b.pnu = :pnu
     """)
 
@@ -327,7 +361,7 @@ def get_building_detail(
         },
     }
 
-    # Attach energy breakdown if available
+    # Attach energy breakdown + provenance if available
     if row.total_energy is not None:
         result["properties"]["energy"] = {
             "total_energy": float(row.total_energy),
@@ -336,6 +370,10 @@ def get_building_detail(
             "hot_water": float(row.hot_water) if row.hot_water else None,
             "lighting": float(row.lighting) if row.lighting else None,
             "ventilation": float(row.ventilation) if row.ventilation else None,
+            "data_tier": row.data_tier,
+            "simulation_type": row.simulation_type,
         }
+    result["properties"]["data_tier"] = row.data_tier
+    result["properties"]["simulation_type"] = row.simulation_type
 
     return result

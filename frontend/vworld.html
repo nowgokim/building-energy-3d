@@ -115,12 +115,74 @@
       background: rgba(124,58,237,0.9); color: #fff;
       padding: 4px 10px; border-radius: 6px; font-size: 11px; white-space: nowrap;
     }
+    /* F2 화재 확산 시뮬레이션 버튼 위치 */
+    #spread-btn { top: 312px; }
+
+    /* F2 화재 확산 시뮬레이션 패널 */
+    #spread-panel {
+      display: none; position: absolute; top: 60px; left: 145px; z-index: 100;
+      background: rgba(255,255,255,0.97); border-radius: 10px; padding: 12px;
+      box-shadow: 0 2px 16px rgba(0,0,0,0.18); width: 240px;
+      max-height: calc(100vh - 100px); overflow-y: auto; font-size: 12px;
+    }
+    #spread-panel h3 { margin: 0 0 8px; font-size: 13px; }
+    .sp-section { margin-bottom: 10px; }
+    .sp-label { font-size: 10px; color: #888; font-weight: 600; margin-bottom: 4px; }
+    #sp-origin-box {
+      padding: 6px 8px; background: #f9fafb; border: 1px dashed #ddd;
+      border-radius: 6px; font-size: 11px; color: #555; cursor: pointer;
+      transition: border-color 0.2s;
+    }
+    #sp-origin-box.selecting { border-color: #f97316; background: #fff7ed; color: #ea580c; }
+    #sp-origin-box.selected  { border-color: #22c55e; background: #f0fdf4; color: #16a34a; }
+    #compass-wrap { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+    #compass { cursor: pointer; touch-action: none; }
+    #sp-wind-dir-text { font-size: 11px; color: #555; }
+    .sp-run-btn {
+      width: 100%; padding: 8px; border: none; border-radius: 6px;
+      background: #f97316; color: #fff; font-size: 13px; font-weight: bold;
+      cursor: pointer; transition: background 0.2s;
+    }
+    .sp-run-btn:hover { background: #ea580c; }
+    .sp-run-btn:disabled { background: #d1d5db; cursor: not-allowed; }
+    #sp-status { font-size: 10px; color: #888; text-align: center; min-height: 14px; margin-top: 4px; }
+
+    /* F2 타임라인 컨트롤 바 */
+    #spread-timeline-ctrl {
+      position: absolute; bottom: 50px; left: 50%; transform: translateX(-50%);
+      z-index: 110; background: rgba(20,20,20,0.88); color: #fff; border-radius: 10px;
+      padding: 8px 14px; box-shadow: 0 2px 12px rgba(0,0,0,0.3);
+      display: none; align-items: center; gap: 10px; min-width: 380px;
+    }
+    #spread-timeline-ctrl button {
+      background: none; border: 1px solid rgba(255,255,255,0.4); color: #fff;
+      border-radius: 4px; padding: 2px 8px; cursor: pointer; font-size: 12px;
+    }
+    #spread-timeline-ctrl button:hover { background: rgba(255,255,255,0.15); }
+    #spread-step-slider { flex: 1; accent-color: #f97316; }
+    #spread-step-info { font-size: 11px; color: #ccc; white-space: nowrap; }
+
+    /* F2 피해 통계 패널 */
+    #spread-stats-panel {
+      display: none; position: absolute; bottom: 100px; right: 12px; z-index: 100;
+      background: rgba(255,255,255,0.96); border-radius: 10px; padding: 12px;
+      box-shadow: 0 2px 16px rgba(0,0,0,0.15); width: 200px; font-size: 12px;
+    }
+    #spread-stats-panel h4 { margin: 0 0 8px; font-size: 12px; color: #555; }
+    .ss-row { display: flex; justify-content: space-between; padding: 3px 0;
+              border-bottom: 1px solid #f3f4f6; }
+    .ss-label { color: #888; }
+    .ss-val { font-weight: bold; }
+    #spread-stats-close {
+      position: absolute; top: 8px; right: 10px; cursor: pointer; color: #aaa; font-size: 16px;
+    }
+
     /* 필터 결과 floating badge — 패널 닫혔을 때만 보임 */
     #filter-result-badge {
       display: none; position: absolute; top: 204px; left: 145px; z-index: 99;
       background: rgba(74,158,255,0.93); color: #fff;
       padding: 4px 10px; border-radius: 6px; font-size: 11px; white-space: nowrap;
-      cursor: pointer; pointer-events: none;
+      cursor: pointer;
     }
 
     /* 필터 패널 — 버튼 열 오른쪽에 배치 */
@@ -162,6 +224,111 @@
   <button id="filter-btn"  class="map-btn" onclick="toggleFilterPanel()">🔍 필터</button>
   <button id="area-btn"    class="map-btn" onclick="toggleAreaSelect()">📐 영역 선택</button>
   <button id="mode-btn"    class="map-btn" onclick="toggle2DMode()">🗺 2D 보기</button>
+  <button id="spread-btn"  class="map-btn" onclick="toggleSpreadPanel()">💨 확산 시뮬</button>
+
+  <!-- F2 화재 확산 시뮬레이션 패널 -->
+  <div id="spread-panel">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <h3 style="margin:0">💨 화재 확산 시뮬레이션</h3>
+      <span style="cursor:pointer;color:#aaa;font-size:18px;line-height:1" onclick="toggleSpreadPanel()">×</span>
+    </div>
+
+    <!-- 발화 건물 선택 -->
+    <div class="sp-section">
+      <div class="sp-label">① 발화 건물 선택</div>
+      <div id="sp-origin-box" onclick="startOriginSelect()">지도에서 건물을 클릭하세요 →</div>
+      <div style="margin-top:5px;position:relative">
+        <input id="sp-origin-input" type="text" placeholder="건물명 / PNU 직접 입력..."
+          style="width:100%;padding:5px 8px;border:1px solid #ddd;border-radius:5px;font-size:11px;box-sizing:border-box"
+          oninput="onSpreadOriginInput(this.value)"
+          onkeydown="if(event.key==='Escape'){closeSpreadOriginResults()}"
+        />
+        <div id="sp-origin-results"
+          style="display:none;position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid #ddd;
+                 border-radius:5px;max-height:160px;overflow-y:auto;z-index:200;box-shadow:0 2px 8px rgba(0,0,0,0.12)">
+        </div>
+      </div>
+    </div>
+
+    <!-- 바람 방향 컴파스 -->
+    <div class="sp-section">
+      <div class="sp-label">② 바람 방향 (불어오는 방향)</div>
+      <div class="compass-wrap">
+        <svg id="compass" width="100" height="100" onclick="onCompassClick(event)">
+          <circle cx="50" cy="50" r="44" fill="#f9fafb" stroke="#e5e7eb" stroke-width="1.5"/>
+          <!-- 방위 눈금 -->
+          <text x="50" y="13"  text-anchor="middle" font-size="10" fill="#6b7280" font-weight="bold">N</text>
+          <text x="50" y="93"  text-anchor="middle" font-size="10" fill="#6b7280">S</text>
+          <text x="8"  y="54"  text-anchor="middle" font-size="10" fill="#6b7280">W</text>
+          <text x="92" y="54"  text-anchor="middle" font-size="10" fill="#6b7280">E</text>
+          <!-- 중심 -->
+          <circle cx="50" cy="50" r="3" fill="#9ca3af"/>
+          <!-- 바람 방향 화살표 (JS로 업데이트) -->
+          <line id="compass-needle" x1="50" y1="50" x2="50" y2="12"
+                stroke="#f97316" stroke-width="3" stroke-linecap="round"/>
+          <polygon id="compass-arrow" points="50,6 46,14 54,14"
+                   fill="#f97316"/>
+        </svg>
+        <div id="sp-wind-dir-text">N (0°)</div>
+      </div>
+    </div>
+
+    <!-- 바람 속도 -->
+    <div class="sp-section">
+      <div class="sp-label">③ 바람 속도 &nbsp;<span id="sp-wind-speed-val" style="color:#f97316;font-weight:bold">0 m/s (무풍)</span></div>
+      <input type="range" id="sp-wind-speed" min="0" max="20" step="1" value="0"
+             oninput="updateWindSpeed(this.value)" style="width:100%;accent-color:#f97316"/>
+      <div style="display:flex;justify-content:space-between;font-size:9px;color:#aaa;margin-top:2px">
+        <span>무풍</span><span>약풍 5</span><span>강풍 10</span><span>태풍 20</span>
+      </div>
+      <div id="sp-weather-src" style="font-size:10px;color:#6ee7b7;margin-top:4px;text-align:right"></div>
+    </div>
+
+    <!-- 최대 시간 -->
+    <div class="sp-section">
+      <div class="sp-label">④ 최대 확산 시간 &nbsp;<span id="sp-steps-val" style="color:#555;font-weight:bold">150분</span></div>
+      <input type="range" id="sp-steps" min="5" max="60" step="5" value="30"
+             oninput="updateMaxSteps(this.value)" style="width:100%;accent-color:#9333ea"/>
+    </div>
+
+    <button id="sp-run-btn" class="sp-run-btn" onclick="runSpreadSimulation()" disabled>
+      🔥 시뮬레이션 시작
+    </button>
+    <button id="sp-evac-btn"
+      style="width:100%;margin-top:6px;padding:7px;border:none;border-radius:6px;
+             background:#16a34a;color:#fff;cursor:pointer;font-size:12px;font-weight:bold;display:none"
+      onclick="loadEvacuationRoutes()">
+      🚶 대피 경로 표시
+    </button>
+    <div id="sp-status"></div>
+  </div>
+
+  <!-- F2 타임라인 컨트롤 -->
+  <div id="spread-timeline-ctrl" style="display:none;align-items:center;gap:10px">
+    <button onclick="spreadPlayPause()" id="spread-play-btn" title="재생/일시정지">▶</button>
+    <input type="range" id="spread-step-slider" min="0" value="0" step="1"
+           oninput="onSpreadSlider(this.value)" style="flex:1;accent-color:#f97316"/>
+    <span id="spread-step-info" style="font-size:11px;color:#ccc">0분 · 0건</span>
+    <button onclick="clearSpread()" title="시뮬레이션 종료">✕</button>
+  </div>
+
+  <!-- F2 피해 통계 패널 -->
+  <div id="spread-stats-panel">
+    <span id="spread-stats-close" onclick="document.getElementById('spread-stats-panel').style.display='none'">×</span>
+    <h4>🔥 확산 시뮬레이션 결과</h4>
+    <div class="ss-row"><span class="ss-label">총 피해 건물</span><span class="ss-val" id="ss-total">-</span></div>
+    <div class="ss-row"><span class="ss-label">총 피해 면적</span><span class="ss-val" id="ss-area">-</span></div>
+    <div class="ss-row"><span class="ss-label">주거 건물</span><span class="ss-val" id="ss-residential">-</span></div>
+    <div class="ss-row"><span class="ss-label">상업 건물</span><span class="ss-val" id="ss-commercial">-</span></div>
+    <div class="ss-row"><span class="ss-label">고위험 건물</span><span class="ss-val" id="ss-high">-</span></div>
+    <div class="ss-row"><span class="ss-label">중위험 건물</span><span class="ss-val" id="ss-medium">-</span></div>
+    <div class="ss-row"><span class="ss-label">최대 확산 시간</span><span class="ss-val" id="ss-duration">-</span></div>
+    <div class="ss-row"><span class="ss-label">100건 도달</span><span class="ss-val" id="ss-100">-</span></div>
+    <div style="margin-top:6px;font-size:10px;color:#aaa" id="ss-wind-info"></div>
+    <div id="ss-halted-warn" style="display:none;margin-top:6px;font-size:10px;color:#f97316;">
+      ⚠️ 최대 건물 수 도달로 시뮬레이션이 조기 종료됐습니다.
+    </div>
+  </div>
 
   <!-- 영역 선택 안내 -->
   <div id="area-status-bar">첫 번째 꼭지점을 클릭하세요 (우클릭: 취소)</div>
@@ -257,6 +424,7 @@
       <div class="metric"><div class="value" id="p-energy">-</div><div class="label">kWh/m²</div></div>
       <div class="metric"><div class="value" id="p-area">-</div><div class="label">m² 연면적</div></div>
     </div>
+    <div id="p-data-source" style="margin:6px 0 4px;font-size:11px;"></div>
     <dl class="info">
       <dt>PNU</dt><dd id="p-pnu">-</dd>
       <dt>용도</dt><dd id="p-usage">-</dd>
@@ -292,6 +460,46 @@
   <script>
     const API = "/api/v1";
     let currentAbort = null;
+    let _weatherWs = null;
+
+    function initWeatherWebSocket() {
+      const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl   = `${wsProto}//${location.host}/ws/weather`;
+      _weatherWs = new WebSocket(wsUrl);
+
+      _weatherWs.onmessage = (evt) => {
+        try {
+          const d = JSON.parse(evt.data);
+          if (d.wind_direction != null) {
+            windDir = Math.round(d.wind_direction);
+            updateCompassUI();
+          }
+          if (d.wind_speed != null) {
+            windSpd = Math.min(20, Math.round(d.wind_speed));
+            document.getElementById('sp-wind-speed').value = windSpd;
+            updateWindSpeed(windSpd);
+          }
+          // 기상 출처 표시
+          const src = d.source === 'kma_api' ? '🌤 기상청 자동 연동' : '📍 기본값';
+          const el = document.getElementById('sp-weather-src');
+          if (el) el.textContent = src;
+        } catch {}
+      };
+
+      _weatherWs.onclose = () => {
+        // 5초 후 재연결
+        setTimeout(initWeatherWebSocket, 5000);
+      };
+    }
+
+    function escapeHtml(str) {
+      return String(str ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
 
     // ── Phase 3.5 상태 변수 (전역 선언) ──────────────────────────────────────
     let filterPanelVisible = false;
@@ -324,6 +532,9 @@
     vw.ws3dInitCallBack = function () {
       document.getElementById("loading").style.display = "none";
       const viewer = ws3d.viewer;
+
+      // F4: 기상 WebSocket 초기화
+      initWeatherWebSocket();
 
       // --- 성능 + 안정화 ---
       // 타일 동시 요청 수 증가
@@ -373,6 +584,11 @@
           .then((r) => r.json())
           .then((result) => {
             if (!result.pnu) return;
+            // F2: 발화 건물 선택 모드가 켜져 있으면 여기서 처리 후 종료
+            if (spreadOriginSelect) {
+              setSpreadOrigin(result.pnu, result.building_name);
+              return;
+            }
             if (textureMode) {
               // 텍스처 모드: 면 텍스처만 적용, 에너지 패널 표시 안 함
               applyFaceTexture(lng, lat, carto.height, result.pnu, controller.signal);
@@ -398,6 +614,7 @@
     let firePointCollection = null;
     let fireMode = false;
     let fireMoveEndRemover = null;
+    let fireRiskAbortCtrl  = null;
 
     function fireRiskColor(grade) {
       if (grade === 'HIGH')   return Cesium.Color.fromCssColorString('#ff4444').withAlpha(0.9);
@@ -408,6 +625,10 @@
     async function loadFireRiskLayer() {
       if (!ws3d?.viewer) return;
       const viewer = ws3d.viewer;
+      // 진행 중인 요청 취소
+      if (fireRiskAbortCtrl) { fireRiskAbortCtrl.abort(); }
+      fireRiskAbortCtrl = new AbortController();
+      const signal = fireRiskAbortCtrl.signal;
       clearFireRiskLayer();
       // 너무 높이서 조회하면 점이 너무 작음 → 고도 5km 이상이면 카메라 이동 완료 후 재시도
       const camHeight = viewer.camera.positionCartographic.height;
@@ -428,7 +649,7 @@
       const north = Cesium.Math.toDegrees(rect.north);
       document.getElementById('fire-status').textContent = '로딩 중...';
       try {
-        const resp = await fetch(`${API}/fire/risk?west=${west}&south=${south}&east=${east}&north=${north}`);
+        const resp = await fetch(`${API}/fire/risk?west=${west}&south=${south}&east=${east}&north=${north}`, { signal });
         const data = await resp.json();
         firePointCollection = viewer.scene.primitives.add(new Cesium.PointPrimitiveCollection());
         (data.features || []).forEach(f => {
@@ -438,14 +659,16 @@
             pixelSize: f.grade === 'HIGH' ? 10 : 7,
             outlineColor: Cesium.Color.WHITE.withAlpha(0.4),
             outlineWidth: 1,
-            heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND,
+            disableDepthTestDistance: Number.POSITIVE_INFINITY,
           });
         });
         const highCnt = (data.features || []).filter(f => f.grade === 'HIGH').length;
         document.getElementById('fire-status').textContent =
           `조회 ${data.count.toLocaleString()}건 · 고위험 ${highCnt.toLocaleString()}건`;
       } catch(e) {
-        document.getElementById('fire-status').textContent = '로드 실패: ' + e.message;
+        if (e.name !== 'AbortError') {
+          document.getElementById('fire-status').textContent = '로드 실패: ' + e.message;
+        }
       }
     }
 
@@ -661,7 +884,7 @@
         const timeColor = s.est_response_min <= 5 ? '#22c55e'
                         : s.est_response_min <= 10 ? '#ff8c00' : '#ff4444';
         el.innerHTML =
-          '🚒 최근접 소방서: <b>' + s.name + '</b> ' +
+          '🚒 최근접 소방서: <b>' + escapeHtml(s.name) + '</b> ' +
           '(<span style="color:' + timeColor + ';font-weight:bold">' + s.est_response_min + '분</span>' +
           ' / ' + (s.distance_m/1000).toFixed(1) + 'km)';
       } catch(_) {
@@ -935,8 +1158,8 @@
       label.style.display = "block";
       list.innerHTML = textureEntities.map(t =>
         '<div class="face-item">' +
-        '<span class="face-name">' + t.label + '</span>' +
-        '<button class="face-remove" onclick="removeSingleTexture(\'' + t.key + '\')">×</button>' +
+        '<span class="face-name">' + escapeHtml(t.label) + '</span>' +
+        '<button class="face-remove" onclick="removeSingleTexture(\'' + escapeHtml(t.key) + '\')">×</button>' +
         '</div>'
       ).join("");
     }
@@ -958,6 +1181,29 @@
       document.getElementById("p-name").textContent = p.building_name || "건물 정보";
       document.getElementById("p-grade").textContent = p.energy_grade || "-";
       document.getElementById("p-energy").textContent = p.total_energy ? Math.round(p.total_energy) : "-";
+
+      // 데이터 출처 배지
+      const TIER_INFO = {
+        1: { label: "실측 데이터",      color: "#16a34a", bg: "#dcfce7", icon: "●" },
+        2: { label: "인증 등급 변환",   color: "#ca8a04", bg: "#fef9c3", icon: "◉" },
+        3: { label: "ML/시뮬 예측",    color: "#2563eb", bg: "#dbeafe", icon: "◎" },
+        4: { label: "아키타입 추정",    color: "#64748b", bg: "#f1f5f9", icon: "○" },
+      };
+      const SRC_LABEL = {
+        bldg_energy_hub: "건축HUB 실소비량",
+        energy_grade:    "건축물대장 등급",
+        kea_cert:        "KEA 인증",
+        energyplus:      "EnergyPlus 시뮬",
+        archetype:       "아키타입 룩업",
+      };
+      const tier = p.data_tier || 4;
+      const t = TIER_INFO[tier] || TIER_INFO[4];
+      const srcName = SRC_LABEL[p.simulation_type] || p.simulation_type || "알 수 없음";
+      document.getElementById("p-data-source").innerHTML =
+        `<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:12px;` +
+        `background:${t.bg};color:${t.color};font-weight:600">` +
+        `${t.icon} Tier ${tier} · ${t.label}</span>` +
+        `<span style="color:#94a3b8;margin-left:6px">${srcName}</span>`;
       document.getElementById("p-area").textContent = p.total_area != null ? p.total_area.toLocaleString() : "-";
       document.getElementById("p-pnu").textContent = p.pnu || "-";
       document.getElementById("p-usage").textContent = p.usage_type || "-";
@@ -1109,7 +1355,7 @@
             pixelSize: 13,
             outlineColor: Cesium.Color.fromCssColorString('#92400e').withAlpha(1.0),
             outlineWidth: 2,
-            heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND,
+            disableDepthTestDistance: Number.POSITIVE_INFINITY,
           });
         });
 
@@ -1380,9 +1626,9 @@
             el.innerHTML = data.results
               .map(
                 (r) =>
-                  '<div class="item" onclick="selectSearch(\'' + r.pnu + "'," + r.lng + "," + r.lat + ')">' +
-                  "<b>" + (r.building_name || r.pnu) + "</b> <span style='color:#888;font-size:11px'>" +
-                  (r.usage_type || "") + "</span></div>"
+                  '<div class="item" onclick="selectSearch(\'' + escapeHtml(r.pnu) + "'," + parseFloat(r.lng) + "," + parseFloat(r.lat) + ')">' +
+                  "<b>" + escapeHtml(r.building_name || r.pnu) + "</b> <span style='color:#888;font-size:11px'>" +
+                  escapeHtml(r.usage_type || "") + "</span></div>"
               )
               .join("");
             el.style.display = "block";
@@ -1404,6 +1650,538 @@
         .then((detail) => showPanel(detail))
         .catch(console.error);
     }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // Phase F2 — 화재 확산 시뮬레이션
+    // ═══════════════════════════════════════════════════════════════════════
+
+    let spreadPanelVisible = false;
+    let spreadOriginPnu    = null;
+    let spreadOriginSelect = false;   // 발화 건물 클릭 대기 모드
+    let windDir  = 0;   // 0=North, 90=East (degrees, 불어오는 방향)
+    let windSpd  = 0;   // m/s
+    let simMaxSteps = 30;
+
+    // F3 대피 경로
+    let evacPolylines  = [];   // Cesium Primitive polylines
+    let evacMarkerColl = null; // BillboardCollection (집결지 마커)
+
+    // 시뮬레이션 결과
+    let spreadTimeline   = [];   // [{step, time_min, new_pnus, cumulative_count}]
+    let spreadCentroids  = {};   // {pnu: {lng, lat}}
+    let spreadPtColl     = null; // Cesium PointPrimitiveCollection
+    let spreadPtMap      = {};   // step -> [PointPrimitive]
+    let spreadCurrStep   = 0;
+    let spreadMaxStep    = 0;
+    let spreadPlaying    = false;
+    let spreadTimer      = null;
+    let spreadOriginEntity = null;
+    let spreadSimAbortCtrl = null;
+
+    // ── UI 제어 ─────────────────────────────────────────────────────────────
+
+    function toggleSpreadPanel() {
+      spreadPanelVisible = !spreadPanelVisible;
+      const panel = document.getElementById('spread-panel');
+      const btn   = document.getElementById('spread-btn');
+      panel.style.display = spreadPanelVisible ? 'block' : 'none';
+      btn.style.background = spreadPanelVisible ? '#f97316' : 'rgba(255,255,255,0.92)';
+      btn.style.color       = spreadPanelVisible ? '#fff' : '#333';
+    }
+
+    function startOriginSelect() {
+      spreadOriginSelect = true;
+      const box = document.getElementById('sp-origin-box');
+      box.textContent = '🔴 지도에서 발화 건물을 클릭하세요...';
+      box.className = 'selecting';
+    }
+
+    let _spreadOriginTimer = null;
+    function onSpreadOriginInput(val) {
+      clearTimeout(_spreadOriginTimer);
+      const res = document.getElementById('sp-origin-results');
+      if (!val.trim()) { res.style.display = 'none'; return; }
+      _spreadOriginTimer = setTimeout(async () => {
+        try {
+          const r = await fetch(API + '/search?q=' + encodeURIComponent(val.trim()));
+          const data = await r.json();
+          if (!data.results?.length) { res.style.display = 'none'; return; }
+          res.innerHTML = data.results.slice(0, 8).map(r =>
+            `<div style="padding:6px 8px;cursor:pointer;font-size:11px;border-bottom:1px solid #eee"
+              onmousedown="selectSpreadOriginResult('${escapeHtml(r.pnu)}','${escapeHtml(r.building_name||r.pnu)}',${parseFloat(r.lng)},${parseFloat(r.lat)})"
+              onmouseover="this.style.background='#f0f7ff'" onmouseout="this.style.background=''">
+              <b>${escapeHtml(r.building_name || r.pnu)}</b>
+              <span style="color:#888;margin-left:4px">${escapeHtml(r.usage_type||'')}</span>
+            </div>`
+          ).join('');
+          res.style.display = 'block';
+        } catch(_) { res.style.display = 'none'; }
+      }, 300);
+    }
+
+    function selectSpreadOriginResult(pnu, name, lng, lat) {
+      closeSpreadOriginResults();
+      document.getElementById('sp-origin-input').value = name;
+      setSpreadOrigin(pnu, name);
+      if (lng && lat && ws3d?.viewer) {
+        ws3d.viewer.camera.flyTo({
+          destination: Cesium.Cartesian3.fromDegrees(lng, lat, 400),
+          orientation: { heading: 0, pitch: Cesium.Math.toRadians(-50), roll: 0 },
+          duration: 1.2,
+        });
+      }
+    }
+
+    function closeSpreadOriginResults() {
+      document.getElementById('sp-origin-results').style.display = 'none';
+    }
+
+    function setSpreadOrigin(pnu, name) {
+      spreadOriginSelect = false;
+      spreadOriginPnu = pnu;
+      const box = document.getElementById('sp-origin-box');
+      box.textContent = '✅ ' + (name || pnu).slice(0, 28);
+      box.className = 'selected';
+      document.getElementById('sp-run-btn').disabled = false;
+      document.getElementById('sp-evac-btn').style.display = 'block';
+    }
+
+    // ── 컴파스 ─────────────────────────────────────────────────────────────
+
+    function onCompassClick(evt) {
+      const svg  = document.getElementById('compass');
+      const rect = svg.getBoundingClientRect();
+      const cx   = rect.left + rect.width / 2;
+      const cy   = rect.top  + rect.height / 2;
+      const dx   = evt.clientX - cx;
+      const dy   = evt.clientY - cy;
+      // atan2(dx, -dy): 북쪽(위)=0, 동쪽(오른쪽)=90
+      windDir = Math.round(((Math.atan2(dx, -dy) * 180 / Math.PI) + 360) % 360);
+      updateCompassUI();
+    }
+
+    function updateCompassUI() {
+      const r  = 34;
+      const cx = 50, cy = 50;
+      const rad = windDir * Math.PI / 180;
+      const tx  = cx + r * Math.sin(rad);
+      const ty  = cy - r * Math.cos(rad);
+      document.getElementById('compass-needle').setAttribute('x2', tx.toFixed(1));
+      document.getElementById('compass-needle').setAttribute('y2', ty.toFixed(1));
+      // 화살촉
+      const headLen = 8;
+      const ax  = cx + (r + headLen) * Math.sin(rad);
+      const ay  = cy - (r + headLen) * Math.cos(rad);
+      const lx  = cx + (r - 2) * Math.sin(rad - 0.35);
+      const ly  = cy - (r - 2) * Math.cos(rad - 0.35);
+      const rx  = cx + (r - 2) * Math.sin(rad + 0.35);
+      const ry  = cy - (r - 2) * Math.cos(rad + 0.35);
+      document.getElementById('compass-arrow').setAttribute(
+        'points', `${ax.toFixed(1)},${ay.toFixed(1)} ${lx.toFixed(1)},${ly.toFixed(1)} ${rx.toFixed(1)},${ry.toFixed(1)}`
+      );
+      const dirs = ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
+      document.getElementById('sp-wind-dir-text').textContent =
+        dirs[Math.round(windDir / 22.5) % 16] + ' (' + windDir + '°)';
+    }
+
+    function updateWindSpeed(v) {
+      windSpd = parseInt(v, 10);
+      const labels = ['무풍','산들바람','약풍','약풍','강풍','강풍','강풍','강풍','강풍','강풍','강풍',
+                      '강풍','강풍','강풍','강풍','강풍','강풍','폭풍','폭풍','폭풍','태풍'];
+      document.getElementById('sp-wind-speed-val').textContent =
+        windSpd + ' m/s (' + (labels[windSpd] || '') + ')';
+    }
+
+    function updateMaxSteps(v) {
+      simMaxSteps = parseInt(v, 10);
+      document.getElementById('sp-steps-val').textContent = (simMaxSteps * 5) + '분';
+    }
+
+    // ── 시뮬레이션 실행 ─────────────────────────────────────────────────────
+
+    async function runSpreadSimulation() {
+      if (!spreadOriginPnu) return;
+      const btn = document.getElementById('sp-run-btn');
+      const status = document.getElementById('sp-status');
+
+      // 이전 시뮬레이션 결과 즉시 초기화 (아이콘·타임라인·통계 패널)
+      clearSpread();
+
+      btn.disabled = true;
+      btn.textContent = '⏳ 시뮬레이션 중...';
+      status.textContent = '서버에 요청 중...';
+
+      spreadSimAbortCtrl = new AbortController();
+      const { signal } = spreadSimAbortCtrl;
+
+      try {
+        // 1. POST /fire/scenario (동기 실행, 수초 대기)
+        status.textContent = 'BFS 시뮬레이션 계산 중...';
+        const resp = await fetch(API + '/fire/scenario', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            origin_pnu:     spreadOriginPnu,
+            wind_direction: windDir,
+            wind_speed:     windSpd,
+            max_steps:      simMaxSteps,
+          }),
+          signal,
+        });
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          throw new Error(err.detail || '시뮬레이션 실패 (' + resp.status + ')');
+        }
+        const job = await resp.json();
+        const scenarioId = job.scenario_id;
+
+        // 2. 타임라인+PNU 포함 전체 결과 조회
+        status.textContent = '결과 불러오는 중...';
+        const res = await fetch(
+          API + '/fire/scenario/' + scenarioId + '?include_timeline=true&include_pnus=true',
+          { signal }
+        );
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.detail || '결과 조회 실패 (' + res.status + ')');
+        }
+        const scenario = await res.json();
+
+        // 4. centroid 좌표 일괄 조회
+        status.textContent = '좌표 데이터 로드 중...';
+        const ctResp = await fetch(API + '/buildings/centroids/batch', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({pnus: scenario.affected_pnus}),
+          signal,
+        });
+        const ctData = await ctResp.json();
+        spreadCentroids = {};
+        ctData.centroids.forEach(c => { spreadCentroids[c.pnu] = {lng: c.lng, lat: c.lat}; });
+
+        // 5. 애니메이션 구축
+        status.textContent = '';
+        buildSpreadAnimation(scenario);
+        showSpreadStats(scenario);
+
+        btn.textContent = '🔄 다시 실행';
+        btn.disabled = false;
+
+        // 고립 건물 경고
+        if (scenario.stats?.total_buildings <= 1) {
+          status.textContent = '⚠️ 이 건물은 25m 이내 이웃 건물이 없습니다. 더 밀집된 지역의 건물을 선택하세요.';
+        }
+
+        // 패널 자동 닫기
+        setTimeout(() => {
+          if (spreadPanelVisible) toggleSpreadPanel();
+        }, 800);
+
+      } catch (e) {
+        if (e.name === 'AbortError') return;
+        status.textContent = '오류: ' + e.message;
+        btn.textContent = '🔥 시뮬레이션 시작';
+        btn.disabled = false;
+      }
+    }
+
+    // ── 애니메이션 구축 ─────────────────────────────────────────────────────
+
+    // ── 확산 아이콘 (이모지 캔버스) ─────────────────────────────────────────
+    const _iconCache = {};
+    function makeEmojiCanvas(emoji, size) {
+      const key = emoji + size;
+      if (_iconCache[key]) return _iconCache[key];
+      const c = document.createElement('canvas');
+      c.width = c.height = size;
+      const ctx = c.getContext('2d');
+      ctx.font = `${Math.round(size * 0.78)}px serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(emoji, size / 2, size / 2);
+      _iconCache[key] = c;
+      return c;
+    }
+    function spreadIcon(step) {
+      if (step === 0) return makeEmojiCanvas('🔥', 36);  // 발화점: 큰 불꽃
+      if (step <= 3)  return makeEmojiCanvas('🔥', 26);  // 초기 확산
+      if (step <= 8)  return makeEmojiCanvas('🔥', 20);  // 중기
+      return makeEmojiCanvas('💨', 18);                   // 후기: 연기
+    }
+    function spreadIconSize(step) {
+      if (step === 0) return 36;
+      if (step <= 3)  return 26;
+      if (step <= 8)  return 20;
+      return 18;
+    }
+
+    function buildSpreadAnimation(scenario) {
+      clearSpread();
+
+      spreadTimeline = scenario.spread_timeline || [];
+      spreadMaxStep  = spreadTimeline.length - 1;
+      spreadCurrStep = -1;   // delta 계산을 위해 -1로 초기화
+
+      if (spreadTimeline.length === 0) return;
+      if (!ws3d?.viewer) return;
+      const viewer = ws3d.viewer;
+
+      spreadPtColl = viewer.scene.primitives.add(new Cesium.BillboardCollection());
+      spreadPtMap  = {};
+
+      spreadTimeline.forEach(entry => {
+        const s = entry.step;
+        const icon = spreadIcon(s);
+        const sz   = spreadIconSize(s);
+        spreadPtMap[s] = [];
+        (entry.new_pnus || []).forEach(pnu => {
+          const c = spreadCentroids[pnu];
+          if (!c) return;
+          const pt = spreadPtColl.add({
+            position: Cesium.Cartesian3.fromDegrees(c.lng, c.lat, 10),
+            image:  icon,
+            width:  sz,
+            height: sz,
+            disableDepthTestDistance: Number.POSITIVE_INFINITY,
+            show: false,
+          });
+          spreadPtMap[s].push(pt);
+        });
+      });
+
+      // 타임라인 컨트롤 표시
+      const ctrl = document.getElementById('spread-timeline-ctrl');
+      ctrl.style.display = 'flex';
+      const slider = document.getElementById('spread-step-slider');
+      slider.max   = spreadMaxStep;
+      slider.value = 0;
+      updateSpreadDisplay(0);
+
+      // 확산 없음: 단계가 0이면 자동재생 시작 안 함 (볼 게 없음)
+      if (spreadMaxStep === 0) {
+        document.getElementById('spread-step-info').textContent =
+          '발화 건물만 표시 (인접 건물 없음)';
+        return;
+      }
+
+      // 자동 재생 시작
+      spreadPlaying = true;
+      document.getElementById('spread-play-btn').textContent = '⏸';
+      spreadAutoPlay();
+    }
+
+    function updateSpreadDisplay(step) {
+      // 델타 업데이트: 이전 step과의 차이만 토글
+      const prev = spreadCurrStep;
+      if (step > prev) {
+        for (let s = Math.max(prev + 1, 0); s <= step; s++)
+          (spreadPtMap[s] || []).forEach(pt => { pt.show = true; });
+      } else if (step < prev) {
+        for (let s = step + 1; s <= prev; s++)
+          (spreadPtMap[s] || []).forEach(pt => { pt.show = false; });
+      }
+      const entry = spreadTimeline[step] || {};
+      document.getElementById('spread-step-info').textContent =
+        (entry.time_min || 0) + '분 경과 · ' + (entry.cumulative_count || 0).toLocaleString() + '건 피해';
+      document.getElementById('spread-step-slider').value = step;
+      spreadCurrStep = step;
+    }
+
+    function spreadAutoPlay() {
+      if (spreadTimer) clearInterval(spreadTimer);
+      spreadTimer = setInterval(() => {
+        if (!spreadPlaying) return;
+        if (spreadCurrStep >= spreadMaxStep) {
+          spreadPlaying = false;
+          document.getElementById('spread-play-btn').textContent = '▶';
+          clearInterval(spreadTimer);
+          return;
+        }
+        updateSpreadDisplay(spreadCurrStep + 1);
+      }, 600); // 0.6초/step
+    }
+
+    function spreadPlayPause() {
+      spreadPlaying = !spreadPlaying;
+      const btn = document.getElementById('spread-play-btn');
+      if (spreadPlaying) {
+        btn.textContent = '⏸';
+        if (spreadCurrStep >= spreadMaxStep) {
+          updateSpreadDisplay(0);
+        }
+        spreadAutoPlay();
+      } else {
+        btn.textContent = '▶';
+        if (spreadTimer) clearInterval(spreadTimer);
+      }
+    }
+
+    function onSpreadSlider(val) {
+      spreadPlaying = false;
+      document.getElementById('spread-play-btn').textContent = '▶';
+      if (spreadTimer) clearInterval(spreadTimer);
+      updateSpreadDisplay(parseInt(val, 10));
+    }
+
+    function clearSpread() {
+      spreadPlaying = false;
+      if (spreadSimAbortCtrl) { spreadSimAbortCtrl.abort(); spreadSimAbortCtrl = null; }
+      if (spreadTimer) { clearInterval(spreadTimer); spreadTimer = null; }
+      if (spreadPtColl && ws3d?.viewer) {
+        ws3d.viewer.scene.primitives.remove(spreadPtColl);
+        spreadPtColl = null;
+      }
+      spreadPtMap  = {};
+      spreadTimeline = [];
+      Object.keys(_iconCache).forEach(k => delete _iconCache[k]);
+      document.getElementById('spread-timeline-ctrl').style.display = 'none';
+      document.getElementById('spread-stats-panel').style.display = 'none';
+      clearEvacuation();
+    }
+
+    // ── F3 대피 경로 ─────────────────────────────────────────────────────────
+
+    function clearEvacuation() {
+      const viewer = ws3d?.viewer;
+      if (!viewer) return;
+      evacPolylines.forEach(p => viewer.scene.primitives.remove(p));
+      evacPolylines = [];
+      if (evacMarkerColl) {
+        viewer.scene.primitives.remove(evacMarkerColl);
+        evacMarkerColl = null;
+      }
+    }
+
+    // 경로 색상 (3개 경로별)
+    const EVAC_COLORS = [
+      Cesium.Color.fromCssColorString('#16a34a'),   // 1순위: 초록
+      Cesium.Color.fromCssColorString('#0ea5e9'),   // 2순위: 파랑
+      Cesium.Color.fromCssColorString('#a855f7'),   // 3순위: 보라
+    ];
+
+    async function loadEvacuationRoutes() {
+      if (!spreadOriginPnu) return;
+      const btn = document.getElementById('sp-evac-btn');
+      const status = document.getElementById('sp-status');
+      btn.disabled = true;
+      btn.textContent = '⏳ 경로 계산 중...';
+      status.textContent = '';
+
+      try {
+        const resp = await fetch(`${API}/fire/evacuation/${spreadOriginPnu}?max_routes=3`);
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          throw new Error(err.detail || '대피 경로 계산 실패');
+        }
+        const data = await resp.json();
+        clearEvacuation();
+        renderEvacuationRoutes(data);
+        btn.textContent = '🔄 경로 갱신';
+      } catch (e) {
+        status.textContent = '⚠️ ' + e.message;
+        btn.textContent = '🚶 대피 경로 표시';
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    function renderEvacuationRoutes(data) {
+      const viewer = ws3d?.viewer;
+      if (!viewer || !data.routes?.length) return;
+
+      // 집결지 마커 컬렉션
+      evacMarkerColl = viewer.scene.primitives.add(new Cesium.BillboardCollection());
+
+      data.routes.forEach((route, idx) => {
+        const color = EVAC_COLORS[idx] || EVAC_COLORS[2];
+
+        // 경로 폴리라인 (지형 클램핑)
+        if (route.coordinates?.length >= 2) {
+          const positions = route.coordinates.map(
+            ([lng, lat]) => Cesium.Cartesian3.fromDegrees(lng, lat)
+          );
+          const prim = viewer.scene.primitives.add(new Cesium.GroundPolylinePrimitive({
+            geometryInstances: new Cesium.GeometryInstance({
+              geometry: new Cesium.GroundPolylineGeometry({
+                positions,
+                width: idx === 0 ? 6.0 : 4.0,
+              }),
+            }),
+            appearance: new Cesium.PolylineMaterialAppearance({
+              material: Cesium.Material.fromType('Color', {
+                color: color.withAlpha(idx === 0 ? 1.0 : 0.7),
+              }),
+            }),
+          }));
+          evacPolylines.push(prim);
+        }
+
+        // 집결지 마커 (마지막 좌표)
+        const coords = route.coordinates;
+        if (coords?.length) {
+          const [lng, lat] = coords[coords.length - 1];
+          const canvas = makeEvacCanvas(idx + 1, color);
+          evacMarkerColl.add({
+            position:              Cesium.Cartesian3.fromDegrees(lng, lat, 50),
+            image:                 canvas,
+            width:                 36, height: 36,
+            verticalOrigin:        Cesium.VerticalOrigin.BOTTOM,
+            horizontalOrigin:      Cesium.HorizontalOrigin.CENTER,
+            heightReference:       Cesium.HeightReference.RELATIVE_TO_GROUND,
+            disableDepthTestDistance: Number.POSITIVE_INFINITY,
+          });
+        }
+      });
+    }
+
+    function makeEvacCanvas(rank, color) {
+      const c = document.createElement('canvas');
+      c.width = c.height = 32;
+      const ctx = c.getContext('2d');
+      const hex = '#' + [color.red, color.green, color.blue]
+        .map(v => Math.round(v * 255).toString(16).padStart(2, '0')).join('');
+      ctx.fillStyle = hex;
+      ctx.beginPath();
+      ctx.arc(16, 16, 14, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 14px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(rank, 16, 16);
+      return c;
+    }
+
+    // ── 통계 패널 ───────────────────────────────────────────────────────────
+
+    function showSpreadStats(scenario) {
+      const s = scenario.stats || {};
+      const setEl = (id, val) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = val;
+      };
+      setEl('ss-total',       (s.total_buildings || 0).toLocaleString() + '건');
+      setEl('ss-area',        s.total_area_m2
+        ? (s.total_area_m2 / 1000).toFixed(1) + ' 천m²' : '-');
+      setEl('ss-residential', (s.residential_count || 0).toLocaleString() + '건');
+      setEl('ss-commercial',  (s.commercial_count  || 0).toLocaleString() + '건');
+      setEl('ss-high',        (s.high_risk_count || 0).toLocaleString() + '건');
+      setEl('ss-medium',      (s.medium_risk_count || 0).toLocaleString() + '건');
+      setEl('ss-duration',    (s.simulation_duration_min || 0) + '분');
+      setEl('ss-100',         s.time_to_100_buildings_min != null
+        ? s.time_to_100_buildings_min + '분' : '미도달');
+      setEl('ss-wind-info',
+        '바람: ' + ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'][
+          Math.round(windDir / 22.5) % 16
+        ] + ' ' + windDir + '° @ ' + windSpd + 'm/s');
+
+      const haltedWarn = document.getElementById('ss-halted-warn');
+      if (haltedWarn) haltedWarn.style.display = s.halted_due_to_limit ? 'block' : 'none';
+
+      document.getElementById('spread-stats-panel').style.display = 'block';
+    }
+
+    // F2 발화 건물 클릭 처리는 기존 LEFT_CLICK 핸들러 내부 (spreadOriginSelect 분기)에서 처리됨
   </script>
 </body>
 </html>

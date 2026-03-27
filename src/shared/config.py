@@ -6,6 +6,7 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql://postgres:devpassword@127.0.0.1:5434/buildings"
     REDIS_URL: str = "redis://localhost:6379"
     DATA_GO_KR_API_KEY: str = ""
+    KMA_API_KEY: str = ""          # apihub.kma.go.kr authKey
     VWORLD_API_KEY: str = ""
     JUSO_API_KEY: str = ""
     SEOUL_DATA_API_KEY: str = ""

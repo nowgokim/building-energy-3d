@@ -1,7 +1,7 @@
 # 사용 가이드 — 3D 건물 에너지 & 화재 안전 플랫폼
 
 **문서 버전**: 1.0
-**작성일**: 2026-03-25
+**작성일**: 2026-03-25 | **최종 수정**: 2026-03-27 (F2~F4 완료 반영)
 **대상**: 플랫폼 사용자 (소방담당 공무원, 연구자, 개발자)
 
 ---
@@ -154,19 +154,56 @@ POST /api/v1/fire/adjacency/build?sgg_code=11440&dist_m=25
 POST /api/v1/fire/adjacency/build    # 서울 전체 25개 구 순차 실행
 ```
 
+### 5.5 화재 확산 시뮬레이션 (Phase F2)
+
+```
+POST /api/v1/fire/scenario           # 시나리오 실행 (origin_pnu, wind_direction, wind_speed)
+GET  /api/v1/fire/scenario/{id}      # 결과 조회 (타임라인 JSON)
+GET  /api/v1/fire/scenarios          # 저장된 시나리오 목록
+```
+
+요청 예시:
+```json
+{ "origin_pnu": "1144010100...", "wind_direction": 270.0, "wind_speed": 5.0, "max_steps": 20 }
+```
+
+### 5.6 대피 경로 (Phase F3)
+
+```
+GET /api/v1/fire/evacuation/{pnu}?max_routes=3
+```
+
+반환: 가장 가까운 집결지 3개까지의 Dijkstra 최단 경로 (LineString 좌표 배열, 거리(m)).
+집결지: 서울 25개 구 구민체육관 + 대형공원·광장 (총 35개).
+
+### 5.7 기상 (Phase F4)
+
+```
+GET  /api/v1/fire/weather/current      # 현재 서울 풍향·풍속 (JSON)
+POST /api/v1/fire/weather/collect      # 즉시 수집 트리거 (Celery beat 외 수동)
+WS   /ws/weather                       # WebSocket: 60초 간격 push
+```
+
+화재 확산 시뮬레이션 실행 시 기상 WebSocket이 wind_direction/wind_speed를 자동 세팅합니다.
+
 Swagger UI: `http://localhost:8000/docs`
 
 ---
 
 ## 6. 데이터 출처
 
-| 데이터 | 출처 | 갱신 주기 |
-|--------|------|---------|
-| 건물 footprint (766,386동) | VWorld LT_C_SPBD | 분기별 |
-| 건축물대장 | 국토교통부 data.go.kr | 월별 |
-| 소방서 위치 | 소방청 공공데이터 (시드 25개) | 수동 갱신 |
-| 화재 위험도 점수 | 자체 산정 (건축물대장 기반) | DB 재계산 |
-| 고위험 클러스터 | PostGIS ST_ClusterDBSCAN | Celery 태스크 트리거 |
+| 데이터 | 출처 | 건수 | 갱신 주기 |
+|--------|------|------|---------|
+| 건물 footprint | VWorld LT_C_SPBD | 766,386동 | 분기별 |
+| 건축물대장 | 국토교통부 data.go.kr | 1,160,817건 | 월별 |
+| 에너지 실소비량 (Tier 1) | 건축물에너지정보 공개시스템 (bldg_energy_hub) | 89건 | 분기별 |
+| 에너지 인증·등급 (Tier 2) | KEA 인증 2,508건 + 건축물대장 등급 467건 | 2,975건 | 분기별 |
+| 에너지 추정 (Tier 4) | 아키타입 룩업 (40종 × vintage/size/structure) | 645,855건 | 자동 |
+| 소방서 위치 | 소방청 공공데이터 (시드 25개) | 25개 | 수동 갱신 |
+| 피난 집결지 | 구민체육관·공원·광장 (하드코딩) | 35개 | 수동 갱신 |
+| 화재 위험도 점수 | 자체 산정 (건축물대장 기반, 770,909건) | 770,909건 | DB 재계산 |
+| 고위험 클러스터 | PostGIS ST_ClusterDBSCAN | 991개 | Celery 태스크 트리거 |
+| 기상 실황 (풍향·풍속) | 기상청 API (apihub.kma.go.kr → data.go.kr 폴백) | 실시간 | Celery beat 1h |
 
 ---
 

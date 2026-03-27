@@ -16,7 +16,9 @@ logger = logging.getLogger(__name__)
 # Archetype parameter database
 # ---------------------------------------------------------------------------
 # Keys: (usage, vintage_class, structure_type)
-#   usage:          "apartment" | "office" | "retail" | "education" | "hospital"
+#   usage:          "apartment" | "residential_single" | "office" | "retail"
+#                   "education" | "hospital" | "warehouse" | "cultural"
+#                   "mixed_use"
 #   vintage_class:  "pre-1980" | "1980-2000" | "2001-2010" | "post-2010"
 #   structure_type: "RC" (reinforced concrete) | "steel" | "masonry"
 #
@@ -29,43 +31,129 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 ARCHETYPE_PARAMS: dict[tuple[str, str, str], dict[str, float]] = {
-    # === Apartments ===
+    # =========================================================================
+    # Apartments (공동주택: 아파트, 연립, 다세대)
+    # =========================================================================
     ("apartment", "pre-1980", "RC"):       {"wall_uvalue": 1.50, "roof_uvalue": 1.80, "window_uvalue": 5.80, "wwr": 0.25, "ref_heating": 120.0, "ref_cooling": 18.0, "ref_total": 185.0},
     ("apartment", "pre-1980", "masonry"):  {"wall_uvalue": 2.00, "roof_uvalue": 2.20, "window_uvalue": 5.80, "wwr": 0.20, "ref_heating": 140.0, "ref_cooling": 16.0, "ref_total": 205.0},
+    ("apartment", "pre-1980", "steel"):    {"wall_uvalue": 2.20, "roof_uvalue": 2.50, "window_uvalue": 5.80, "wwr": 0.22, "ref_heating": 130.0, "ref_cooling": 17.0, "ref_total": 198.0},
     ("apartment", "1980-2000", "RC"):      {"wall_uvalue": 0.76, "roof_uvalue": 0.58, "window_uvalue": 3.40, "wwr": 0.30, "ref_heating": 85.0,  "ref_cooling": 20.0, "ref_total": 150.0},
     ("apartment", "1980-2000", "masonry"): {"wall_uvalue": 0.90, "roof_uvalue": 0.70, "window_uvalue": 3.40, "wwr": 0.25, "ref_heating": 95.0,  "ref_cooling": 18.0, "ref_total": 160.0},
+    ("apartment", "1980-2000", "steel"):   {"wall_uvalue": 1.00, "roof_uvalue": 0.80, "window_uvalue": 3.40, "wwr": 0.28, "ref_heating": 90.0,  "ref_cooling": 19.0, "ref_total": 155.0},
     ("apartment", "2001-2010", "RC"):      {"wall_uvalue": 0.47, "roof_uvalue": 0.29, "window_uvalue": 2.40, "wwr": 0.35, "ref_heating": 55.0,  "ref_cooling": 22.0, "ref_total": 120.0},
     ("apartment", "2001-2010", "steel"):   {"wall_uvalue": 0.45, "roof_uvalue": 0.27, "window_uvalue": 2.20, "wwr": 0.35, "ref_heating": 52.0,  "ref_cooling": 23.0, "ref_total": 118.0},
     ("apartment", "post-2010", "RC"):      {"wall_uvalue": 0.27, "roof_uvalue": 0.18, "window_uvalue": 1.50, "wwr": 0.35, "ref_heating": 30.0,  "ref_cooling": 24.0, "ref_total": 90.0},
     ("apartment", "post-2010", "steel"):   {"wall_uvalue": 0.25, "roof_uvalue": 0.16, "window_uvalue": 1.40, "wwr": 0.35, "ref_heating": 28.0,  "ref_cooling": 25.0, "ref_total": 88.0},
 
-    # === Offices ===
+    # =========================================================================
+    # Residential Single (단독주택, 다가구주택, 다중주택)
+    # Worse envelope performance than apartments; masonry dominant for pre-1980
+    # =========================================================================
+    ("residential_single", "pre-1980", "RC"):      {"wall_uvalue": 1.80, "roof_uvalue": 2.00, "window_uvalue": 5.80, "wwr": 0.20, "ref_heating": 135.0, "ref_cooling": 13.0, "ref_total": 195.0},
+    ("residential_single", "pre-1980", "masonry"): {"wall_uvalue": 2.50, "roof_uvalue": 2.50, "window_uvalue": 5.80, "wwr": 0.18, "ref_heating": 150.0, "ref_cooling": 12.0, "ref_total": 210.0},
+    ("residential_single", "1980-2000", "RC"):      {"wall_uvalue": 0.90, "roof_uvalue": 0.70, "window_uvalue": 3.40, "wwr": 0.25, "ref_heating": 90.0,  "ref_cooling": 15.0, "ref_total": 155.0},
+    ("residential_single", "1980-2000", "masonry"): {"wall_uvalue": 1.20, "roof_uvalue": 0.90, "window_uvalue": 3.40, "wwr": 0.22, "ref_heating": 100.0, "ref_cooling": 14.0, "ref_total": 165.0},
+    ("residential_single", "2001-2010", "RC"):      {"wall_uvalue": 0.52, "roof_uvalue": 0.35, "window_uvalue": 2.40, "wwr": 0.28, "ref_heating": 58.0,  "ref_cooling": 18.0, "ref_total": 122.0},
+    ("residential_single", "2001-2010", "masonry"): {"wall_uvalue": 0.65, "roof_uvalue": 0.45, "window_uvalue": 2.40, "wwr": 0.26, "ref_heating": 65.0,  "ref_cooling": 17.0, "ref_total": 130.0},
+    ("residential_single", "post-2010", "RC"):      {"wall_uvalue": 0.32, "roof_uvalue": 0.20, "window_uvalue": 1.50, "wwr": 0.30, "ref_heating": 33.0,  "ref_cooling": 21.0, "ref_total": 96.0},
+    ("residential_single", "post-2010", "masonry"): {"wall_uvalue": 0.40, "roof_uvalue": 0.25, "window_uvalue": 1.50, "wwr": 0.28, "ref_heating": 38.0,  "ref_cooling": 20.0, "ref_total": 100.0},
+
+    # =========================================================================
+    # Offices (업무시설, 사무소)
+    # =========================================================================
     ("office", "pre-1980", "RC"):          {"wall_uvalue": 1.60, "roof_uvalue": 1.90, "window_uvalue": 5.80, "wwr": 0.40, "ref_heating": 100.0, "ref_cooling": 45.0, "ref_total": 210.0},
     ("office", "pre-1980", "steel"):       {"wall_uvalue": 1.70, "roof_uvalue": 2.00, "window_uvalue": 5.80, "wwr": 0.45, "ref_heating": 110.0, "ref_cooling": 48.0, "ref_total": 225.0},
+    ("office", "pre-1980", "masonry"):     {"wall_uvalue": 2.00, "roof_uvalue": 2.20, "window_uvalue": 5.80, "wwr": 0.35, "ref_heating": 105.0, "ref_cooling": 42.0, "ref_total": 215.0},
     ("office", "1980-2000", "RC"):         {"wall_uvalue": 0.80, "roof_uvalue": 0.60, "window_uvalue": 3.40, "wwr": 0.45, "ref_heating": 65.0,  "ref_cooling": 40.0, "ref_total": 170.0},
     ("office", "1980-2000", "steel"):      {"wall_uvalue": 0.85, "roof_uvalue": 0.65, "window_uvalue": 3.40, "wwr": 0.50, "ref_heating": 70.0,  "ref_cooling": 42.0, "ref_total": 178.0},
+    ("office", "1980-2000", "masonry"):    {"wall_uvalue": 1.00, "roof_uvalue": 0.80, "window_uvalue": 3.40, "wwr": 0.40, "ref_heating": 68.0,  "ref_cooling": 38.0, "ref_total": 168.0},
     ("office", "2001-2010", "RC"):         {"wall_uvalue": 0.47, "roof_uvalue": 0.29, "window_uvalue": 2.40, "wwr": 0.50, "ref_heating": 40.0,  "ref_cooling": 38.0, "ref_total": 140.0},
     ("office", "2001-2010", "steel"):      {"wall_uvalue": 0.45, "roof_uvalue": 0.27, "window_uvalue": 2.20, "wwr": 0.55, "ref_heating": 38.0,  "ref_cooling": 40.0, "ref_total": 138.0},
     ("office", "post-2010", "RC"):         {"wall_uvalue": 0.27, "roof_uvalue": 0.18, "window_uvalue": 1.50, "wwr": 0.50, "ref_heating": 22.0,  "ref_cooling": 35.0, "ref_total": 105.0},
     ("office", "post-2010", "steel"):      {"wall_uvalue": 0.25, "roof_uvalue": 0.16, "window_uvalue": 1.40, "wwr": 0.55, "ref_heating": 20.0,  "ref_cooling": 36.0, "ref_total": 102.0},
 
-    # === Retail ===
+    # =========================================================================
+    # Retail (판매시설, 근린생활시설)
+    # =========================================================================
     ("retail", "pre-1980", "RC"):          {"wall_uvalue": 1.50, "roof_uvalue": 1.80, "window_uvalue": 5.80, "wwr": 0.50, "ref_heating": 80.0,  "ref_cooling": 55.0, "ref_total": 220.0},
+    ("retail", "pre-1980", "masonry"):     {"wall_uvalue": 2.00, "roof_uvalue": 2.20, "window_uvalue": 5.80, "wwr": 0.45, "ref_heating": 85.0,  "ref_cooling": 50.0, "ref_total": 220.0},
     ("retail", "1980-2000", "RC"):         {"wall_uvalue": 0.80, "roof_uvalue": 0.60, "window_uvalue": 3.40, "wwr": 0.55, "ref_heating": 55.0,  "ref_cooling": 50.0, "ref_total": 175.0},
+    ("retail", "1980-2000", "steel"):      {"wall_uvalue": 0.85, "roof_uvalue": 0.65, "window_uvalue": 3.40, "wwr": 0.60, "ref_heating": 48.0,  "ref_cooling": 52.0, "ref_total": 178.0},
+    ("retail", "1980-2000", "masonry"):    {"wall_uvalue": 1.00, "roof_uvalue": 0.80, "window_uvalue": 3.40, "wwr": 0.50, "ref_heating": 58.0,  "ref_cooling": 46.0, "ref_total": 172.0},
     ("retail", "2001-2010", "RC"):         {"wall_uvalue": 0.47, "roof_uvalue": 0.29, "window_uvalue": 2.40, "wwr": 0.55, "ref_heating": 35.0,  "ref_cooling": 45.0, "ref_total": 140.0},
+    ("retail", "2001-2010", "steel"):      {"wall_uvalue": 0.45, "roof_uvalue": 0.27, "window_uvalue": 2.20, "wwr": 0.60, "ref_heating": 30.0,  "ref_cooling": 48.0, "ref_total": 138.0},
     ("retail", "post-2010", "RC"):         {"wall_uvalue": 0.27, "roof_uvalue": 0.18, "window_uvalue": 1.50, "wwr": 0.55, "ref_heating": 20.0,  "ref_cooling": 40.0, "ref_total": 105.0},
+    ("retail", "post-2010", "steel"):      {"wall_uvalue": 0.25, "roof_uvalue": 0.16, "window_uvalue": 1.40, "wwr": 0.60, "ref_heating": 16.0,  "ref_cooling": 42.0, "ref_total": 104.0},
 
-    # === Education ===
+    # =========================================================================
+    # Education (교육연구시설, 학교, 수련시설)
+    # =========================================================================
     ("education", "pre-1980", "RC"):       {"wall_uvalue": 1.60, "roof_uvalue": 1.90, "window_uvalue": 5.80, "wwr": 0.35, "ref_heating": 110.0, "ref_cooling": 30.0, "ref_total": 195.0},
+    ("education", "pre-1980", "steel"):    {"wall_uvalue": 1.70, "roof_uvalue": 2.00, "window_uvalue": 5.80, "wwr": 0.38, "ref_heating": 105.0, "ref_cooling": 28.0, "ref_total": 192.0},
+    ("education", "pre-1980", "masonry"):  {"wall_uvalue": 2.00, "roof_uvalue": 2.20, "window_uvalue": 5.80, "wwr": 0.30, "ref_heating": 115.0, "ref_cooling": 27.0, "ref_total": 198.0},
     ("education", "1980-2000", "RC"):      {"wall_uvalue": 0.80, "roof_uvalue": 0.60, "window_uvalue": 3.40, "wwr": 0.35, "ref_heating": 75.0,  "ref_cooling": 28.0, "ref_total": 155.0},
+    ("education", "1980-2000", "steel"):   {"wall_uvalue": 0.85, "roof_uvalue": 0.65, "window_uvalue": 3.40, "wwr": 0.38, "ref_heating": 70.0,  "ref_cooling": 26.0, "ref_total": 152.0},
+    ("education", "1980-2000", "masonry"): {"wall_uvalue": 1.00, "roof_uvalue": 0.80, "window_uvalue": 3.40, "wwr": 0.32, "ref_heating": 78.0,  "ref_cooling": 26.0, "ref_total": 158.0},
     ("education", "2001-2010", "RC"):      {"wall_uvalue": 0.47, "roof_uvalue": 0.29, "window_uvalue": 2.40, "wwr": 0.40, "ref_heating": 45.0,  "ref_cooling": 30.0, "ref_total": 125.0},
+    ("education", "2001-2010", "steel"):   {"wall_uvalue": 0.45, "roof_uvalue": 0.27, "window_uvalue": 2.20, "wwr": 0.42, "ref_heating": 42.0,  "ref_cooling": 28.0, "ref_total": 122.0},
     ("education", "post-2010", "RC"):      {"wall_uvalue": 0.27, "roof_uvalue": 0.18, "window_uvalue": 1.50, "wwr": 0.40, "ref_heating": 25.0,  "ref_cooling": 28.0, "ref_total": 95.0},
+    ("education", "post-2010", "steel"):   {"wall_uvalue": 0.25, "roof_uvalue": 0.16, "window_uvalue": 1.40, "wwr": 0.42, "ref_heating": 22.0,  "ref_cooling": 26.0, "ref_total": 92.0},
 
-    # === Hospital ===
+    # =========================================================================
+    # Hospital (의료시설, 병원, 노유자시설)
+    # 24/7 operation; high hot water demand
+    # =========================================================================
     ("hospital", "pre-1980", "RC"):        {"wall_uvalue": 1.50, "roof_uvalue": 1.80, "window_uvalue": 5.80, "wwr": 0.30, "ref_heating": 130.0, "ref_cooling": 50.0, "ref_total": 260.0},
+    ("hospital", "pre-1980", "steel"):     {"wall_uvalue": 1.60, "roof_uvalue": 1.90, "window_uvalue": 5.80, "wwr": 0.32, "ref_heating": 140.0, "ref_cooling": 52.0, "ref_total": 270.0},
     ("hospital", "1980-2000", "RC"):       {"wall_uvalue": 0.76, "roof_uvalue": 0.58, "window_uvalue": 3.40, "wwr": 0.30, "ref_heating": 90.0,  "ref_cooling": 45.0, "ref_total": 210.0},
+    ("hospital", "1980-2000", "steel"):    {"wall_uvalue": 0.80, "roof_uvalue": 0.60, "window_uvalue": 3.40, "wwr": 0.32, "ref_heating": 95.0,  "ref_cooling": 46.0, "ref_total": 215.0},
     ("hospital", "2001-2010", "RC"):       {"wall_uvalue": 0.47, "roof_uvalue": 0.29, "window_uvalue": 2.40, "wwr": 0.35, "ref_heating": 55.0,  "ref_cooling": 42.0, "ref_total": 165.0},
+    ("hospital", "2001-2010", "steel"):    {"wall_uvalue": 0.45, "roof_uvalue": 0.27, "window_uvalue": 2.20, "wwr": 0.38, "ref_heating": 58.0,  "ref_cooling": 44.0, "ref_total": 168.0},
     ("hospital", "post-2010", "RC"):       {"wall_uvalue": 0.27, "roof_uvalue": 0.18, "window_uvalue": 1.50, "wwr": 0.35, "ref_heating": 30.0,  "ref_cooling": 38.0, "ref_total": 120.0},
+    ("hospital", "post-2010", "steel"):    {"wall_uvalue": 0.25, "roof_uvalue": 0.16, "window_uvalue": 1.40, "wwr": 0.38, "ref_heating": 32.0,  "ref_cooling": 40.0, "ref_total": 124.0},
+
+    # =========================================================================
+    # Warehouse / Industrial (창고시설, 공장, 산업시설)
+    # Low wwr; steel frame dominant for modern builds
+    # =========================================================================
+    ("warehouse", "pre-1980", "RC"):       {"wall_uvalue": 1.80, "roof_uvalue": 2.00, "window_uvalue": 5.80, "wwr": 0.10, "ref_heating": 55.0,  "ref_cooling": 10.0, "ref_total": 95.0},
+    ("warehouse", "pre-1980", "steel"):    {"wall_uvalue": 3.00, "roof_uvalue": 3.20, "window_uvalue": 5.80, "wwr": 0.12, "ref_heating": 70.0,  "ref_cooling": 12.0, "ref_total": 115.0},
+    ("warehouse", "pre-1980", "masonry"):  {"wall_uvalue": 2.50, "roof_uvalue": 2.80, "window_uvalue": 5.80, "wwr": 0.10, "ref_heating": 60.0,  "ref_cooling": 10.0, "ref_total": 100.0},
+    ("warehouse", "1980-2000", "RC"):      {"wall_uvalue": 1.00, "roof_uvalue": 1.10, "window_uvalue": 3.40, "wwr": 0.12, "ref_heating": 40.0,  "ref_cooling": 12.0, "ref_total": 75.0},
+    ("warehouse", "1980-2000", "steel"):   {"wall_uvalue": 1.80, "roof_uvalue": 2.00, "window_uvalue": 3.40, "wwr": 0.15, "ref_heating": 50.0,  "ref_cooling": 14.0, "ref_total": 88.0},
+    ("warehouse", "1980-2000", "masonry"): {"wall_uvalue": 1.50, "roof_uvalue": 1.60, "window_uvalue": 3.40, "wwr": 0.12, "ref_heating": 45.0,  "ref_cooling": 12.0, "ref_total": 80.0},
+    ("warehouse", "2001-2010", "RC"):      {"wall_uvalue": 0.47, "roof_uvalue": 0.50, "window_uvalue": 2.40, "wwr": 0.15, "ref_heating": 28.0,  "ref_cooling": 13.0, "ref_total": 58.0},
+    ("warehouse", "2001-2010", "steel"):   {"wall_uvalue": 0.55, "roof_uvalue": 0.60, "window_uvalue": 2.40, "wwr": 0.18, "ref_heating": 32.0,  "ref_cooling": 15.0, "ref_total": 62.0},
+    ("warehouse", "2001-2010", "masonry"): {"wall_uvalue": 0.65, "roof_uvalue": 0.70, "window_uvalue": 2.40, "wwr": 0.15, "ref_heating": 30.0,  "ref_cooling": 14.0, "ref_total": 60.0},
+    ("warehouse", "post-2010", "RC"):      {"wall_uvalue": 0.27, "roof_uvalue": 0.30, "window_uvalue": 1.50, "wwr": 0.15, "ref_heating": 16.0,  "ref_cooling": 13.0, "ref_total": 40.0},
+    ("warehouse", "post-2010", "steel"):   {"wall_uvalue": 0.30, "roof_uvalue": 0.35, "window_uvalue": 1.50, "wwr": 0.20, "ref_heating": 20.0,  "ref_cooling": 15.0, "ref_total": 45.0},
+    ("warehouse", "post-2010", "masonry"): {"wall_uvalue": 0.35, "roof_uvalue": 0.40, "window_uvalue": 1.50, "wwr": 0.15, "ref_heating": 18.0,  "ref_cooling": 14.0, "ref_total": 42.0},
+
+    # =========================================================================
+    # Cultural / Assembly (문화및집회시설, 종교시설, 집회시설, 장례시설)
+    # Intermittent occupancy; high ceiling volumes; moderate wwr
+    # =========================================================================
+    ("cultural", "pre-1980", "RC"):       {"wall_uvalue": 1.60, "roof_uvalue": 1.90, "window_uvalue": 5.80, "wwr": 0.30, "ref_heating": 90.0,  "ref_cooling": 28.0, "ref_total": 175.0},
+    ("cultural", "pre-1980", "masonry"):  {"wall_uvalue": 2.00, "roof_uvalue": 2.20, "window_uvalue": 5.80, "wwr": 0.25, "ref_heating": 100.0, "ref_cooling": 25.0, "ref_total": 180.0},
+    ("cultural", "1980-2000", "RC"):      {"wall_uvalue": 0.80, "roof_uvalue": 0.60, "window_uvalue": 3.40, "wwr": 0.30, "ref_heating": 65.0,  "ref_cooling": 26.0, "ref_total": 140.0},
+    ("cultural", "1980-2000", "masonry"): {"wall_uvalue": 1.00, "roof_uvalue": 0.80, "window_uvalue": 3.40, "wwr": 0.28, "ref_heating": 70.0,  "ref_cooling": 24.0, "ref_total": 145.0},
+    ("cultural", "2001-2010", "RC"):      {"wall_uvalue": 0.47, "roof_uvalue": 0.29, "window_uvalue": 2.40, "wwr": 0.35, "ref_heating": 38.0,  "ref_cooling": 28.0, "ref_total": 110.0},
+    ("cultural", "2001-2010", "masonry"): {"wall_uvalue": 0.55, "roof_uvalue": 0.40, "window_uvalue": 2.40, "wwr": 0.32, "ref_heating": 42.0,  "ref_cooling": 26.0, "ref_total": 115.0},
+    ("cultural", "post-2010", "RC"):      {"wall_uvalue": 0.27, "roof_uvalue": 0.18, "window_uvalue": 1.50, "wwr": 0.35, "ref_heating": 20.0,  "ref_cooling": 26.0, "ref_total": 75.0},
+    ("cultural", "post-2010", "masonry"): {"wall_uvalue": 0.35, "roof_uvalue": 0.25, "window_uvalue": 1.50, "wwr": 0.32, "ref_heating": 24.0,  "ref_cooling": 24.0, "ref_total": 80.0},
+
+    # =========================================================================
+    # Mixed Use / Lodging (숙박시설, 복합건축물, 운동시설)
+    # Hotels and mixed-commercial: high hot water; high internal gains
+    # =========================================================================
+    ("mixed_use", "pre-1980", "RC"):      {"wall_uvalue": 1.50, "roof_uvalue": 1.80, "window_uvalue": 5.80, "wwr": 0.35, "ref_heating": 100.0, "ref_cooling": 48.0, "ref_total": 230.0},
+    ("mixed_use", "pre-1980", "steel"):   {"wall_uvalue": 1.60, "roof_uvalue": 1.90, "window_uvalue": 5.80, "wwr": 0.40, "ref_heating": 110.0, "ref_cooling": 50.0, "ref_total": 240.0},
+    ("mixed_use", "1980-2000", "RC"):     {"wall_uvalue": 0.76, "roof_uvalue": 0.58, "window_uvalue": 3.40, "wwr": 0.40, "ref_heating": 70.0,  "ref_cooling": 42.0, "ref_total": 190.0},
+    ("mixed_use", "1980-2000", "steel"):  {"wall_uvalue": 0.80, "roof_uvalue": 0.62, "window_uvalue": 3.40, "wwr": 0.45, "ref_heating": 75.0,  "ref_cooling": 44.0, "ref_total": 198.0},
+    ("mixed_use", "2001-2010", "RC"):     {"wall_uvalue": 0.47, "roof_uvalue": 0.29, "window_uvalue": 2.40, "wwr": 0.45, "ref_heating": 42.0,  "ref_cooling": 38.0, "ref_total": 148.0},
+    ("mixed_use", "2001-2010", "steel"):  {"wall_uvalue": 0.45, "roof_uvalue": 0.27, "window_uvalue": 2.20, "wwr": 0.50, "ref_heating": 40.0,  "ref_cooling": 40.0, "ref_total": 145.0},
+    ("mixed_use", "post-2010", "RC"):     {"wall_uvalue": 0.27, "roof_uvalue": 0.18, "window_uvalue": 1.50, "wwr": 0.45, "ref_heating": 24.0,  "ref_cooling": 34.0, "ref_total": 110.0},
+    ("mixed_use", "post-2010", "steel"):  {"wall_uvalue": 0.25, "roof_uvalue": 0.16, "window_uvalue": 1.40, "wwr": 0.50, "ref_heating": 22.0,  "ref_cooling": 36.0, "ref_total": 108.0},
 }
 
 # ---------------------------------------------------------------------------
@@ -74,11 +162,15 @@ ARCHETYPE_PARAMS: dict[tuple[str, str, str], dict[str, float]] = {
 # ---------------------------------------------------------------------------
 
 _END_USE_RATIOS: dict[str, dict[str, float]] = {
-    "apartment":  {"heating": 0.42, "cooling": 0.10, "hot_water": 0.28, "lighting": 0.10, "ventilation": 0.10},
-    "office":     {"heating": 0.30, "cooling": 0.25, "hot_water": 0.10, "lighting": 0.20, "ventilation": 0.15},
-    "retail":     {"heating": 0.22, "cooling": 0.30, "hot_water": 0.05, "lighting": 0.25, "ventilation": 0.18},
-    "education":  {"heating": 0.38, "cooling": 0.15, "hot_water": 0.15, "lighting": 0.18, "ventilation": 0.14},
-    "hospital":   {"heating": 0.32, "cooling": 0.22, "hot_water": 0.20, "lighting": 0.14, "ventilation": 0.12},
+    "apartment":         {"heating": 0.42, "cooling": 0.10, "hot_water": 0.28, "lighting": 0.10, "ventilation": 0.10},
+    "residential_single":{"heating": 0.45, "cooling": 0.08, "hot_water": 0.30, "lighting": 0.08, "ventilation": 0.09},
+    "office":            {"heating": 0.30, "cooling": 0.25, "hot_water": 0.10, "lighting": 0.20, "ventilation": 0.15},
+    "retail":            {"heating": 0.22, "cooling": 0.30, "hot_water": 0.05, "lighting": 0.25, "ventilation": 0.18},
+    "education":         {"heating": 0.38, "cooling": 0.15, "hot_water": 0.15, "lighting": 0.18, "ventilation": 0.14},
+    "hospital":          {"heating": 0.32, "cooling": 0.22, "hot_water": 0.20, "lighting": 0.14, "ventilation": 0.12},
+    "warehouse":         {"heating": 0.35, "cooling": 0.12, "hot_water": 0.05, "lighting": 0.30, "ventilation": 0.18},
+    "cultural":          {"heating": 0.35, "cooling": 0.18, "hot_water": 0.08, "lighting": 0.22, "ventilation": 0.17},
+    "mixed_use":         {"heating": 0.28, "cooling": 0.22, "hot_water": 0.25, "lighting": 0.14, "ventilation": 0.11},
 }
 
 _DEFAULT_END_USE: dict[str, float] = {
@@ -91,20 +183,52 @@ _DEFAULT_END_USE: dict[str, float] = {
 # ---------------------------------------------------------------------------
 
 _USAGE_KR_TO_EN: dict[str, str] = {
+    # 공동주택
     "공동주택": "apartment",
     "아파트": "apartment",
     "연립주택": "apartment",
     "다세대주택": "apartment",
+    # 단독주택
+    "단독주택": "residential_single",
+    "다가구주택": "residential_single",
+    "다중주택": "residential_single",
+    # 업무시설
     "업무시설": "office",
     "사무소": "office",
+    # 판매·근린
     "판매시설": "retail",
     "근린생활시설": "retail",
     "제1종근린생활시설": "retail",
     "제2종근린생활시설": "retail",
+    # 교육
     "교육연구시설": "education",
     "학교": "education",
+    "수련시설": "education",
+    "도서관": "education",
+    # 의료·노유자
     "의료시설": "hospital",
     "병원": "hospital",
+    "노유자시설": "hospital",
+    "사회복지시설": "hospital",
+    # 창고·공장
+    "창고시설": "warehouse",
+    "공장": "warehouse",
+    "산업시설": "warehouse",
+    "위험물저장및처리시설": "warehouse",
+    "자동차관련시설": "warehouse",
+    "운수시설": "warehouse",
+    # 문화·종교·집회
+    "문화및집회시설": "cultural",
+    "종교시설": "cultural",
+    "집회시설": "cultural",
+    "관람집회시설": "cultural",
+    "전시시설": "cultural",
+    "장례시설": "cultural",
+    # 숙박·복합·운동
+    "숙박시설": "mixed_use",
+    "운동시설": "mixed_use",
+    "복합건축물": "mixed_use",
+    "관광휴게시설": "mixed_use",
 }
 
 
@@ -117,7 +241,11 @@ def _normalize_usage(usage_type: str) -> str:
     if not usage_type:
         return "apartment"  # default for empty/None
     usage = usage_type.lower().strip()
-    return _USAGE_KR_TO_EN.get(usage, usage)
+    # Try exact match first, then normalised
+    result = _USAGE_KR_TO_EN.get(usage_type.strip(), None)
+    if result is None:
+        result = _USAGE_KR_TO_EN.get(usage, usage)
+    return result
 
 
 def _classify_vintage(built_year: int) -> str:
@@ -196,7 +324,7 @@ def match_archetype(
     Parameters
     ----------
     usage_type:
-        Building usage category (e.g. ``"apartment"``, ``"office"``).
+        Building usage category (Korean or English).
     built_year:
         Construction year.
     total_area:
@@ -277,11 +405,15 @@ def estimate_energy(archetype_params: dict[str, Any]) -> dict[str, float]:
     end uses using usage-specific intensity ratios calibrated to Korean
     building stock benchmarks:
 
-    - Apartments:  ~136 kWh/m2/yr average
-    - Offices:     ~159 kWh/m2/yr average
-    - Retail:      ~160 kWh/m2/yr average
-    - Education:   ~140 kWh/m2/yr average
-    - Hospitals:   ~190 kWh/m2/yr average
+    - Apartments:          ~136 kWh/m2/yr average
+    - Residential single:  ~145 kWh/m2/yr average
+    - Offices:             ~159 kWh/m2/yr average
+    - Retail:              ~160 kWh/m2/yr average
+    - Education:           ~140 kWh/m2/yr average
+    - Hospitals:           ~190 kWh/m2/yr average
+    - Warehouse:           ~70  kWh/m2/yr average
+    - Cultural:            ~120 kWh/m2/yr average
+    - Mixed use:           ~165 kWh/m2/yr average
 
     Parameters
     ----------

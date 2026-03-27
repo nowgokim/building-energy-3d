@@ -1,9 +1,9 @@
 # 시스템 아키텍처 설계서
 
-**문서 버전**: 1.2
+**문서 버전**: 1.3
 **작성일**: 2026-03-21
-**최종 수정**: 2026-03-25 (서울 전역 확장 + 화재안전 Phase F0/F1 + DB 스키마 실제 반영)
-**관련 문서**: [PRD](./PRD.md)
+**최종 수정**: 2026-03-27 (Tier C Monitor 완료 · ML ml_xgboost+ml_timeseries · /monitor MPA · Phase F2~F4 완료)
+**관련 문서**: [PRD](./PRD.md) | [PRD-FIRE-SAFETY](./PRD-FIRE-SAFETY.md) | [RFC-FIRE-SAFETY](./RFC-FIRE-SAFETY.md) | [FIRE-SAFETY-WORKPLAN](./FIRE-SAFETY-WORKPLAN.md)
 
 ---
 
@@ -13,8 +13,8 @@
 
 서울특별시 전역 **766,386동**의 건물을 3D로 시각화하고, 에너지 시뮬레이션 결과와 화재 위험도를 오버레이하는 웹 플랫폼.
 
-- **데이터 커버리지**: 서울 25개 구 전역 (VWorld footprint 766K + 건축물대장 1,004,689건)
-- **현재 단계**: Phase 3.5 완료 (필터 UI + 영역 선택 + 화재안전 F0/F1)
+- **데이터 커버리지**: 서울 25개 구 전역 (VWorld footprint 766K + 건축물대장 1,160,817건)
+- **현재 단계**: Phase F0~F4 완료 + Tier C Monitor 완료 (에너지 Tier1~4, 화재안전 시뮬·대피경로·기상연동, 실계량기 시계열 모니터링)
 
 ### 1.2 시스템 경계
 
@@ -189,7 +189,7 @@ for sigungu_code in SEOUL_SGG_CODES:  # 25개 구
         df_recap  = api.get_data("총괄표제부", sigungu_code, bdong_code)
         df_title  = api.get_data("표제부",     sigungu_code, bdong_code)
         # → PostgreSQL building_ledger 테이블에 upsert
-# 완료: 총 1,004,689건 (총괄표제부 + 표제부)
+# 완료: 총 1,160,817건 (총괄표제부 + 표제부, 서울 25개 구)
 ```
 
 **주의사항**: `말소일자` 필드는 활성 동코드가 빈 문자열 `''`로 저장됨 (NULL 아님).
@@ -200,9 +200,10 @@ for sigungu_code in SEOUL_SGG_CODES:  # 25개 구
 | 데이터 | 초기 수집 | 갱신 방식 | 갱신 주기 | 상태 |
 |--------|----------|----------|----------|------|
 | GIS건물통합정보 | ✅ SHP 벌크 (서울 전역 766K) | SHP 재다운로드 | 월 1회 | ✅ 완료 |
-| 건축물대장 | ✅ API 전수 (25개 구, 1,004K건) | API 델타 (변경분) | 주 1회 | ✅ 완료 |
-| 건물에너지정보 | ⏳ 미착수 | API 전수 | 분기 1회 | ⏳ Phase 4 |
-| 기상청 TMY | ⏳ 미착수 | 연 1회 | 연 1회 | ⏳ Phase 4 |
+| 건축물대장 | ✅ API 전수 (25개 구, 1,161K건) | API 델타 (변경분) | 주 1회 | ✅ 완료 |
+| 건물에너지정보 | ✅ Tier1 89건·Tier2 2,975건·Tier4 645,855건 | API 델타 | 분기 1회 | ✅ 완료 |
+| 기상청 실황 (F4) | ✅ weather_snapshots (Celery beat 1h) | 자동 수집 | 1시간 | ✅ F4 완료 |
+| 기상청 TMY (EnergyPlus용) | ⏳ 미착수 | 연 1회 | 연 1회 | ⏳ Phase 4 |
 | 화재 위험도 | ✅ buildings_enriched 기반 자동 계산 | view refresh | 건축물대장 갱신 시 | ✅ 완료 |
 
 ### 3.2 데이터베이스 설계 (`src/shared/`)
@@ -247,56 +248,73 @@ CREATE INDEX idx_ledger_pnu ON building_ledger(pnu);
 
 -- 3. 통합 뷰 (2단계 LATERAL JOIN — 에너지등급 + 구조정보 분리)
 -- ※ 단일 LATERAL JOIN으로는 에너지등급(총괄표제부)과 구조(표제부)를 동시에 못 잡음
+-- SSOT: db/views.sql
 CREATE MATERIALIZED VIEW buildings_enriched AS
 SELECT
     f.gid,
     f.pnu,
     f.geom,
-    -- 높이: footprint > 표제부 > 층수×3.3 > 기본 10m
-    COALESCE(f.bld_ht, l_best.bld_ht, l_best.grnd_flr_cnt * 3.3, 10.0) AS height,
-    -- 에너지 정보: 총괄표제부(에너지등급 있는 행) 우선
-    COALESCE(l_energy.enrgy_eff_rate, NULL)       AS energy_grade,
-    COALESCE(l_energy.main_purps_nm, l_best.main_purps_nm) AS usage_type,
-    COALESCE(l_energy.bld_nm, l_best.bld_nm)      AS building_name,
-    -- 구조 정보: 지상층수 높은 표제부 우선
-    l_best.strct_nm    AS structure_type,
-    l_best.grnd_flr_cnt AS floors_above,
-    l_best.ugrnd_flr_cnt AS floors_below,
-    COALESCE(l_energy.tot_area, l_best.tot_area)  AS total_area,
-    COALESCE(l_energy.bld_area, l_best.bld_area)  AS bld_area,
-    COALESCE(l_energy.use_apr_day, l_best.use_apr_day) AS use_apr_day,
-    f.pnu AS pnu_key,
-    -- 원형 분류용 파생 컬럼
+    COALESCE(l_energy.bld_nm, l_best.bld_nm, f.bld_nm, '')                     AS building_name,
+    COALESCE(l_energy.main_purps_nm, l_best.main_purps_nm, f.usage_type, '미분류') AS usage_type,
+    l_best.strct_nm                                                              AS structure_type,
+    -- 높이: GIS > 대장 > 층수×3.3 > 10m
+    COALESCE(NULLIF(f.height,0), NULLIF(l_best.bld_ht,0),
+             GREATEST(COALESCE(l_best.grnd_flr_cnt, f.grnd_flr, 3), 1) * 3.3, 10.0) AS height,
+    COALESCE(l_best.grnd_flr_cnt, f.grnd_flr, 3)      AS floors_above,
+    COALESCE(l_best.ugrnd_flr_cnt, f.ugrnd_flr, 0)    AS floors_below,
+    COALESCE(l_energy.tot_area, l_best.tot_area, 0)    AS total_area,
+    COALESCE(l_energy.bld_area, l_best.bld_area, 0)    AS building_area,   -- ← building_area (not bld_area)
+    -- 건축년도 (정수): use_apr_day 앞 4자리 파싱
     CASE
-        WHEN COALESCE(l_energy.use_apr_day, l_best.use_apr_day) < '1980-01-01' THEN 'pre-1980'
-        WHEN COALESCE(l_energy.use_apr_day, l_best.use_apr_day) < '2001-01-01' THEN '1980-2000'
-        WHEN COALESCE(l_energy.use_apr_day, l_best.use_apr_day) < '2011-01-01' THEN '2001-2010'
+        WHEN COALESCE(l_energy.use_apr_day, l_best.use_apr_day) IS NOT NULL
+             AND COALESCE(l_energy.use_apr_day, l_best.use_apr_day) != ''
+            THEN LEFT(COALESCE(l_energy.use_apr_day, l_best.use_apr_day), 4)::INTEGER
+        WHEN f.approval_date IS NOT NULL AND f.approval_date != ''
+            THEN LEFT(f.approval_date, 4)::INTEGER
+        ELSE NULL
+    END AS built_year,
+    l_energy.enrgy_eff_rate                            AS energy_grade,
+    l_energy.epi_score,
+    -- 원형 분류용 파생 컬럼 (vintage_class, size_class, structure_class)
+    CASE
+        WHEN built_year_int < 1980  THEN 'pre-1980'
+        WHEN built_year_int <= 2000 THEN '1980-2000'
+        WHEN built_year_int <= 2010 THEN '2001-2010'
         ELSE 'post-2010'
-    END AS vintage_class
+    END AS vintage_class,
+    CASE
+        WHEN COALESCE(l_energy.tot_area, l_best.tot_area, 0) < 500  THEN 'small'
+        WHEN COALESCE(l_energy.tot_area, l_best.tot_area, 0) < 3000 THEN 'medium'
+        ELSE 'large'
+    END AS size_class,
+    CASE
+        WHEN l_best.strct_nm LIKE '%철근콘크리트%' OR l_best.strct_nm LIKE '%RC%' THEN 'RC'
+        WHEN l_best.strct_nm LIKE '%철골%' OR l_best.strct_nm LIKE '%S조%'        THEN 'steel'
+        WHEN l_best.strct_nm LIKE '%조적%' OR l_best.strct_nm LIKE '%벽돌%'
+          OR l_best.strct_nm LIKE '%목%'                                          THEN 'masonry'
+        ELSE 'RC'
+    END AS structure_class
 FROM building_footprints f
--- LATERAL 1: 에너지등급 있는 행 (총괄표제부)
 LEFT JOIN LATERAL (
-    SELECT enrgy_eff_rate, main_purps_nm, bld_nm, tot_area, bld_area, use_apr_day
+    SELECT enrgy_eff_rate, epi_score, main_purps_nm, bld_nm,
+           tot_area, bld_area, use_apr_day
     FROM building_ledger
     WHERE pnu = f.pnu AND enrgy_eff_rate IS NOT NULL
-    ORDER BY tot_area DESC NULLS LAST
-    LIMIT 1
+    ORDER BY tot_area DESC NULLS LAST LIMIT 1
 ) l_energy ON true
--- LATERAL 2: 구조/층수 정보 (지상층수 높은 표제부)
 LEFT JOIN LATERAL (
     SELECT main_purps_nm, bld_nm, strct_nm, grnd_flr_cnt, ugrnd_flr_cnt,
            bld_ht, tot_area, bld_area, use_apr_day
     FROM building_ledger
     WHERE pnu = f.pnu
-    ORDER BY grnd_flr_cnt DESC NULLS LAST, tot_area DESC NULLS LAST
-    LIMIT 1
+    ORDER BY grnd_flr_cnt DESC NULLS LAST, tot_area DESC NULLS LAST LIMIT 1
 ) l_best ON true
 WHERE f.geom IS NOT NULL AND ST_IsValid(f.geom);
 
 CREATE INDEX idx_enriched_geom ON buildings_enriched USING GIST(geom);
 CREATE INDEX idx_enriched_pnu  ON buildings_enriched(pnu);
 COMMENT ON MATERIALIZED VIEW buildings_enriched IS
-    'GIS footprint + 건축물대장 2단계 LATERAL JOIN. l_energy=에너지등급(총괄표제부), l_best=구조/층수(표제부). 770,909건.';
+    'GIS footprint + 건축물대장 2단계 LATERAL JOIN. 실제 DDL: db/views.sql 참조.';
 
 -- 4a. 빠른 KNN pick용 centroid 테이블 (Point GiST, 0.07ms)
 CREATE TABLE building_centroids AS
@@ -393,7 +411,100 @@ CREATE TABLE fire_risk_clusters (
 );
 ```
 
-#### 3.2.3 PNU 매칭 전략
+#### 3.2.3 데이터 출처 추적 테이블 (Phase 4-B — `db/migration_provenance_v1.sql`)
+
+```sql
+-- 에너지 데이터 원천 레지스트리 (Tier 1~4)
+CREATE TABLE data_sources (
+    id           SERIAL PRIMARY KEY,
+    source_key   VARCHAR(50) UNIQUE NOT NULL,  -- collect_energy.py simulation_type과 일치
+    display_name VARCHAR(200) NOT NULL,
+    data_tier    SMALLINT CHECK (1..4),
+    -- 1=실측, 2=공인인증, 3=시뮬/예측, 4=아키타입 폴백
+    source_type  VARCHAR(30),   -- measured|certified|simulation|prediction|lookup
+    api_endpoint TEXT,
+    is_active    BOOLEAN DEFAULT TRUE
+);
+-- 초기 데이터: bldg_energy_hub_elec(1), bldg_energy_hub_gas(1),
+--             energy_grade_cert(2), seoul_open_data(2),
+--             energyplus_sim(3), ml_prediction(3), archetype_lookup(4)
+
+-- 파이프라인 실행 이력 (collect_*.py 실행마다 1행)
+CREATE TABLE pipeline_runs (
+    id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    run_type     VARCHAR(50),   -- 'collect_energy_grade' 등
+    source_id    INTEGER REFERENCES data_sources(id),
+    params       JSONB,         -- {"limit": 2000, ...}
+    started_at   TIMESTAMPTZ DEFAULT NOW(),
+    ended_at     TIMESTAMPTZ,
+    rows_upserted INTEGER,
+    status       pipeline_run_status  -- running|success|partial|failed|cancelled
+);
+
+-- energy_results 추가 컬럼 (기존 행에 영향 없음 — 모두 NULLABLE 또는 DEFAULT)
+ALTER TABLE energy_results
+    ADD COLUMN source_id       INTEGER REFERENCES data_sources(id),
+    ADD COLUMN pipeline_run_id UUID    REFERENCES pipeline_runs(id),
+    ADD COLUMN data_tier       SMALLINT DEFAULT 4,  -- 기존 행 = 아키타입 폴백
+    ADD COLUMN reference_year  SMALLINT,
+    ADD COLUMN is_current      BOOLEAN DEFAULT TRUE,
+    ADD COLUMN superseded_by   INTEGER,  -- 논리 참조 (FK 연결 예정)
+    ADD COLUMN source_metadata JSONB;
+
+-- 모델 카탈로그 (모델 패밀리)
+CREATE TABLE model_registry (
+    id             SERIAL PRIMARY KEY,
+    model_name     VARCHAR(100),
+    model_type     model_type_enum,
+    -- xgboost|lightgbm|lstm|transformer|patchtst|dl_generic|energyplus|archetype_lookup
+    temporal_scale temporal_scale_enum,  -- annual|daily|hourly
+    target_variable target_variable_enum,  -- eui|elec_kwh|gas_kwh
+    stage          model_stage_enum,     -- dev→staging→production→archived
+    UNIQUE (model_name, model_type, temporal_scale, target_variable)
+);
+
+-- 모델 버전별 훈련 메타데이터
+CREATE TABLE model_versions (
+    id                     SERIAL PRIMARY KEY,
+    model_id               INTEGER REFERENCES model_registry(id),
+    version_tag            VARCHAR(50),
+    training_data_snapshot DATE,           -- 재현성 기준점
+    training_source_keys   TEXT[],         -- data_sources.source_key 배열
+    val_rmse  REAL,  val_mape REAL,  val_r2 REAL,  val_mae REAL,
+    artifact_path          TEXT,           -- 's3://...' 또는 로컬 경로
+    hyperparams            JSONB,
+    feature_names          TEXT[]
+);
+
+-- 예측 결과 (PARTITION BY RANGE(predicted_at), 연도별 파티션)
+CREATE TABLE energy_predictions (
+    id               BIGSERIAL,
+    pnu              VARCHAR(19),
+    model_version_id INTEGER REFERENCES model_versions(id),
+    predicted_at     TIMESTAMPTZ,          -- 파티션 키
+    temporal_scale   temporal_scale_enum,
+    target_variable  target_variable_enum,
+    predicted_eui    REAL,
+    actual_eui       REAL,                 -- 실측 수집 후 UPDATE
+    error_abs        REAL,
+    error_pct        REAL,
+    PRIMARY KEY (id, predicted_at)
+) PARTITION BY RANGE (predicted_at);
+-- 파티션: energy_predictions_2025/2026/2027/default
+
+-- 정확도 집계 MV (REFRESH CONCURRENTLY 지원)
+CREATE MATERIALIZED VIEW model_accuracy_summary AS
+    SELECT mv.id, mr.model_name, mr.model_type, ... rmse, mape, r_squared
+    FROM energy_predictions ep JOIN model_versions mv ... JOIN model_registry mr ...
+    WHERE ep.actual_eui IS NOT NULL
+    GROUP BY mv.id, mr.model_name, mr.model_type, mv.version_tag, mr.stage,
+             ep.temporal_scale, ep.target_variable;
+```
+
+**is_current 쿼리 원칙**: `energy_results` JOIN 시 반드시 `AND er.is_current = TRUE` 조건 포함.
+현재 UNIQUE(pnu) 제약이 있어 실질적으로 1행이지만, 향후 버전 이력 기능 추가 시 복수 행이 존재한다.
+
+#### 3.2.4 PNU 매칭 전략
 
 ```
 PNU 코드 구조 (19자리):
@@ -408,6 +519,71 @@ PNU 코드 구조 (19자리):
 3. PNU 매칭 + 면적 유사도 (다세대 폴백)
 4. 매칭 실패 → 미매칭 건물 테이블에 기록 (수동 검토)
 ```
+
+#### 3.2.5 Tier C 실계량기 시계열 테이블 (`db/monitor_timeseries.sql`) — ✅ 구현 완료
+
+> ⚠️ **SSOT**: `db/monitor_timeseries.sql` (canonical)
+> 이전 파일 `db/migration_tier_c_timeseries_v1.sql`은 **deprecated** — 실행 금지. 자세한 내용: `docs/IMPACT.md` Tier C 섹션, `CLAUDE.md`.
+
+Tier C = 실제 계량기(전력/가스/지역난방) 시계열 데이터를 보유한 건물 (수십~수백 건 규모).
+
+```sql
+-- 모니터링 대상 건물 레지스트리 (SSOT: db/monitor_timeseries.sql)
+CREATE TABLE monitored_buildings (
+    ts_id       SERIAL PRIMARY KEY,
+    pnu         VARCHAR(19) REFERENCES building_footprints(pnu) DEFERRABLE,
+    alias       VARCHAR(200),             -- 건물 별칭
+    meter_types TEXT[] NOT NULL DEFAULT '{}',  -- {'electricity','gas','heat'}
+    total_area  REAL,
+    usage_type  VARCHAR(100),
+    built_year  INTEGER,
+    data_source VARCHAR(100)              -- 'KEPCO_AMI' | '가스공사' | '수동입력'
+);
+
+-- 계량값 원본 (RANGE 파티션: 월별 / 12개 파티션 pre-created)
+CREATE TABLE metered_readings (
+    id          BIGSERIAL,
+    ts_id       INTEGER NOT NULL REFERENCES monitored_buildings(ts_id),
+    meter_type  VARCHAR(20) NOT NULL CHECK (... 'electricity','gas','heat','water'),
+    recorded_at TIMESTAMP NOT NULL,
+    value       REAL NOT NULL,            -- 단위: unit 컬럼 참조
+    unit        VARCHAR(10) DEFAULT 'kWh',
+    PRIMARY KEY (id, recorded_at)
+) PARTITION BY RANGE (recorded_at);
+
+-- 이상치 로그 (Celery beat 1h 주기 감지)
+CREATE TABLE anomaly_log (
+    ts_id       INTEGER REFERENCES monitored_buildings(ts_id),
+    meter_type  VARCHAR(20),
+    detected_at TIMESTAMP,
+    window_mean REAL, window_std REAL, offending_value REAL,
+    z_score     REAL,                     -- |z| > 2 → 이상치
+    UNIQUE (ts_id, meter_type, detected_at)
+);
+
+-- 일 단위 집계 중간 계층 (Celery daily task가 채움)
+CREATE TABLE metered_readings_daily (
+    ts_id       INTEGER REFERENCES monitored_buildings(ts_id),
+    meter_type  VARCHAR(20),
+    day         DATE,
+    total_kwh   DOUBLE PRECISION,
+    coverage_pct REAL,                    -- 70% 미만 = 이상치 탐지 대상
+    PRIMARY KEY (ts_id, meter_type, day)
+);
+
+-- EUI 요약 뷰 (최근 365일, API /monitor/buildings 소스)
+CREATE OR REPLACE VIEW monitor_eui_summary AS ...;
+
+-- 연간 집계 → energy_results upsert 함수
+CREATE FUNCTION fn_sync_tier_c_to_energy_results(p_reference_year INTEGER) ...;
+```
+
+**핵심 설계 결정:**
+- TimescaleDB 미사용 (수백 건 규모에서 PostgreSQL RANGE 파티션으로 충분)
+- 15분 원본 → 일 집계 → 연간 집계 3계층 구조 (query 최적화)
+- Redis pub/sub `monitor:anomaly:events` → WebSocket push (실시간 알림)
+
+---
 
 ### 3.3 3D Tiles 생성 모듈 (`src/tile_generation/`)
 
@@ -671,7 +847,24 @@ viewer.camera.flyTo({
 | POST | `/api/v1/simulate` | EnergyPlus 시뮬레이션 실행 (async) | 미구현 |
 | GET | `/api/v1/simulate/{task_id}` | 시뮬레이션 상태 | 미구현 |
 
-#### 3.7.4 관리 API — Phase 5 예정
+#### 3.7.4 Tier C 모니터링 API — ✅ 구현 완료 (`src/visualization/monitor.py`)
+
+| Method | Path | 설명 | 캐시 TTL | 상태 |
+|--------|------|------|---------|------|
+| GET | `/api/v1/monitor/buildings` | 모니터링 건물 목록 (필터: usageType, meterType, search) | Redis 60s | ✅ |
+| GET | `/api/v1/monitor/buildings/{ts_id}` | 건물 상세 + 최근 30일 일별 계량값 | Redis 300s | ✅ |
+| GET | `/api/v1/monitor/timeseries/{ts_id}` | 시계열 데이터 (period: 7d/30d/1y, meter 선택) | Redis 1800s | ✅ |
+| GET | `/api/v1/monitor/compare` | 최대 3개 건물 EUI 비교 (ids=1,2,3) | Redis 300s | ✅ |
+| GET | `/api/v1/monitor/anomalies` | 최근 이상치 목록 | Redis 60s | ✅ |
+| POST | `/api/v1/monitor/upload/{ts_id}` | CSV 계량값 일괄 업로드 (KEPCO AMI/가스공사/범용 자동 탐지) | — | ✅ |
+| WS | `/ws/monitor/{ts_id}` | 실시간 계량값 push (Redis pub/sub → WebSocket) | — | ✅ |
+
+**보안 특이사항:**
+- `compare` 엔드포인트: SQLAlchemy 바인딩 파라미터 사용 (f-string SQL 조각 미사용)
+- CSV 업로드: `unit` 파라미터 화이트리스트 `{kWh, m3, MJ, Gcal, Nm3}` 검증
+- `ts_id` 존재 여부 사전 검증 (FK 위반 전 명시적 404 반환)
+
+#### 3.7.5 관리 API — Phase 5 예정
 
 | Method | Path | 설명 | 상태 |
 |--------|------|------|------|
@@ -882,6 +1075,41 @@ React 19 + CesiumJS (직접) + Vite 6
 - `building_centroids`: MultiPolygon GiST KNN (300ms) → Point GiST KNN (0.07ms)
 - GZip 미들웨어: API 응답 60% 압축
 - VWorld 뷰어: tileCacheSize=1000, RequestScheduler 12, fog
+
+### 3.9.5 Tier C 모니터링 페이지 (`/monitor`) — ✅ 구현 완료
+
+별도 MPA 엔트리 (`monitor.html` + `src/monitor-main.tsx`). 3D 뷰어와 완전히 분리된 React 앱.
+
+```
+/monitor  (monitor.html)
+├── Vite MPA 별도 엔트리 (vite.config.ts input.monitor)
+├── StrictMode 비활성화 (Leaflet 이중 초기화 방지)
+├── Zustand monitorStore
+│   ├── selectedIds (최대 3개 건물 비교)
+│   ├── period (7d / 30d / 1y)
+│   ├── filters (usageType, meterType, search)
+│   └── timeseriesCache (key: `{ts_id}_{period}`)
+│
+├── MonitorPage (30초 polling + fetchId race guard)
+│   ├── [좌] BuildingListPanel (320px 고정)
+│   │   ├── MonitorFilterBar (용도/계량기/검색)
+│   │   └── BuildingListItem × N (AnomalyBadge 포함)
+│   │
+│   └── [우] main
+│       ├── TimeseriesChartPanel
+│       │   ├── PeriodSelector (7d/30d/1y)
+│       │   └── MultiLineChart (Recharts, 최대 3건 비교)
+│       └── BuildingMiniMap (h-44, Leaflet CDN)
+│           └── /vworld.html?pnu=XXXX 딥링크
+│
+└── Leaflet 1.9.4 (CDN, SRI integrity 포함)
+```
+
+**주요 설계 결정:**
+- `timeseriesCache`를 `useEffect` deps 제외 → `getState()` 직접 접근 (무한 루프 방지)
+- `fetchIdRef` 카운터로 race condition guard (취소된 fetch의 `finally`가 새 로딩 상태 덮어쓰기 방지)
+- `AbortController` per request (컴포넌트 언마운트 + deps 변경 시 fetch 취소)
+- `BuildingListPanel`: 필터 변경 후 사라진 건물의 selectedIds 자동 정리 (`clearSelected`)
 
 ---
 

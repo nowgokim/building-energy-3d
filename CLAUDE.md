@@ -2,7 +2,7 @@
 
 ## 프로젝트 현재 상태
 
-**단계: Phase 3 (웹 뷰어 MVP) 완료, 서울 전역 확장** — 2026-03-23 기준
+**단계: Phase 3.5 완료 + Phase F0~F4 완료 + Tier C Monitor 완료** — 2026-03-27 기준
 
 ### 구현 완료 (Phase 0~3)
 
@@ -10,15 +10,36 @@
 |------|------|------|
 | `docs/` | ✅ 100% | PRD v1.2, Architecture v1.2, RFC 문서 |
 | `docker-compose.yml` | ✅ 100% | PostGIS(5434), Redis(6379), API(8000), Worker |
-| `src/data_ingestion/` | ✅ 95% | VWorld LT_C_SPBD **766,386건** (서울 전역), 건축물대장 총괄표제부 790건 + 표제부 21,401건 (마포구) |
+| `src/data_ingestion/` | ✅ 98% | VWorld **766,386건**(footprint) · 건축물대장 **1,160,817건**(25개 구) · **Tier1** 실측 89건 · **Tier2** 인증/등급 3,588건(KEA 3,192+등급 396, pg_trgm 재수집 완료) · **Tier4** 아키타입. upsert guard: `WHERE data_tier >= EXCLUDED.data_tier` |
 | `src/geometry/` | ✅ 100% | PNU 생성/파싱, 좌표 변환 (EPSG:5174→4326) |
-| `src/simulation/` | ⚠️ 30% | archetype 40종 + 에너지 추정. EnergyPlus/ML 미연동 |
+| `src/simulation/` | ⚠️ 40% | archetype **83종** (9용도×4연대×2~3구조) + 에너지 추정. EnergyPlus/ML 미연동 |
+| `src/simulation/ml_xgboost.py` | ✅ 100% | Tier A/B XGBoost EUI 예측 (Tier1×5 가중치, StratifiedKFold, 예측구간) |
+| `src/simulation/ml_timeseries.py` | ✅ 100% | Tier C 시계열 단기 예측 (lag features, XGBoost) |
+| `db/` (Provenance) | ✅ 100% | data_sources(7건+tier_c_metered) + pipeline_runs + model_registry + model_versions + energy_predictions(파티션) + model_accuracy_summary MV |
 | `src/tile_generation/` | ✅ 80% | trimesh GLB 생성 |
 | `src/visualization/` | ✅ 100% | buildings/search/filter/pick/stats/centroids API + GZip |
 | `db/` | ✅ 100% | init.sql + views.sql LATERAL JOIN (PNU 1:1 매칭) |
-| `tests/unit/` | ✅ 21건 | PNU, 열화계수, 아키타입, 타일 색상 |
+| `tests/unit/` | ✅ 74건 | PNU, 열화계수, 아키타입, 타일 색상, ML xgboost/timeseries |
 | `frontend/` (React) | ✅ 85% | CesiumJS 직접 사용 + 에너지 색상 + 상세 패널 + ErrorBoundary |
 | `frontend/` (VWorld) | ✅ 90% | **VWorld WebGL 3D API 3.0** 텍스처 건물 + 에너지 오버레이 (`/vworld.html`), 서울 전역 766K건 |
+
+### 완료 (Tier C 실계량기 모니터링)
+
+| 모듈 | 상태 | 설명 |
+|------|------|------|
+| `db/monitor_timeseries.sql` | ✅ 100% | `monitored_buildings` + `metered_readings`(월별 파티션) + `anomaly_log` + `metered_readings_daily` + `fn_sync_tier_c_to_energy_results()` |
+| `src/visualization/monitor.py` | ✅ 100% | `/api/v1/monitor/*` 7개 엔드포인트 (Redis 캐시, CSV 업로드, WebSocket) |
+| `src/shared/monitor_models.py` | ✅ 100% | Pydantic 스키마 8개 |
+| `src/monitor/tasks.py` | ✅ 100% | Celery beat 1h 이상치 감지 (PostgreSQL window function, Redis pub/sub) |
+| `frontend/monitor.html` + `src/monitor-main.tsx` | ✅ 100% | `/monitor` 별도 MPA 엔트리 (StrictMode 비활성화 — Leaflet 이중초기화 방지) |
+| `frontend/src/pages/MonitorPage.tsx` | ✅ 100% | 30초 polling, fetchId race guard, 헤더 이상치 카운트 |
+| `frontend/src/components/Monitor/` | ✅ 100% | BuildingListPanel, BuildingListItem, MultiLineChart, TimeseriesChartPanel, BuildingMiniMap, MonitorFilterBar, PeriodSelector, AnomalyBadge (16개 버그 수정 완료) |
+
+**⚠️ DB 스키마 SSOT**: `db/monitor_timeseries.sql` (canonical). `migration_tier_c_timeseries_v1.sql` 은 deprecated.
+**DB 마이그레이션 실행**:
+```bash
+docker compose exec db psql -U postgres -d buildings -f /docker-entrypoint-initdb.d/monitor_timeseries.sql
+```
 
 ### 두 가지 프론트엔드 뷰어
 
@@ -27,21 +48,47 @@
 | **VWorld 뷰어** (권장) | `/vworld.html` | VWorld LoD3-4 (정부 공식) | ✅ 사진 텍스처 | ✅ 클릭→상세 패널 |
 | React 뷰어 | `/` | 자체 익스트루전 | 프로시저럴 색상 | ✅ 색상 코딩 + 패널 |
 
+### 완료 (Fire Safety)
+
+| 모듈 | 상태 | 설명 |
+|------|------|------|
+| `db/fire_risk.sql` + MV | ✅ 100% | building_fire_risk (100점 척도: 구조40+연령30+용도20+층수10) |
+| `src/fire_safety/` F1 | ✅ 100% | 소방서 25개 본서, building_adjacency 3,554,436행 |
+| `src/fire_safety/fire_spread.py` | ✅ 100% | BFS 시뮬레이션 (SPREAD_THRESHOLD=0.25, wind_factor cos기반) |
+| `src/fire_safety/risk.py` | ✅ 100% | 4개 엔드포인트 + Celery tasks.run_fire_scenario |
+| vworld.html (F2) | ✅ 100% | 확산 시뮬 버튼, 컴파스 UI, 타임라인 컨트롤, 통계 패널 |
+| F3 대피경로 | ✅ 100% | pgRouting Dijkstra + evacuation_points 35개 (25구 전체) |
+| F4 기상 연동 | ✅ 100% | apihub.kma.go.kr + data.go.kr 폴백 + /ws/weather WebSocket + Celery beat 1h |
+
 ### 미착수 (Phase 4~5)
 
 | 모듈 | 설명 |
 |------|------|
-| EnergyPlus 연동 | OpenStudio/geomeppy 시뮬레이션 (40 archetype × 8760시간) |
+| EnergyPlus 연동 | OpenStudio/geomeppy 시뮬레이션 (83 archetype × 8760시간) |
 | 에너지 예측 모델 | Pluggable Architecture — EnergyPredictor ABC, ModelRegistry |
 | 일단위 예측 | XGBoost (기본) → 사용자 커스텀 모델 교체 가능 |
 | 시간단위 예측 | LSTM (기본) → 사용자 커스텀 모델 교체 가능 |
 | 온돌 모델링 | 바닥복사난방 (공동주택) |
 | 리트로핏 추정 | 창호/외단열 변경 효과 |
 | UHI 보정 | 도시열섬 효과 반영 |
-| **Phase 3.5** | 필터 UI + 도로명주소 + 데이터 신뢰도 + 영역 선택 + 2D/3D 전환 |
 | Phase 4 | archetype 120종 + 지역난방 + 온돌 + EnergyPlus + 예측 모델 |
 | Phase 4 | CO2 배출량 + 1차에너지 환산 + 리트로핏 비용 계산 |
 | Phase 5 | 시간대 애니메이션 + 건물 비교 + ZEB 전환 지도 + 전국 확장 |
+
+**화재 안전 관련 문서**: [PRD-FIRE-SAFETY.md](./docs/PRD-FIRE-SAFETY.md) · [RFC-FIRE-SAFETY.md](./docs/RFC-FIRE-SAFETY.md) · [FIRE-SAFETY-WORKPLAN.md](./docs/FIRE-SAFETY-WORKPLAN.md)
+
+## ⚠️ 변경 관리 원칙 (수정 전 필독)
+
+이 프로젝트는 같은 사실(vintage_class 구간, buildings_enriched 컬럼 등)이 여러 파일에 중복 기술되어 있다.
+**수정 전에 반드시 [docs/IMPACT.md](./docs/IMPACT.md)를 확인하고 영향 파일을 동시에 수정한다.**
+
+| SSOT | 연동 파일 |
+|------|----------|
+| `db/views.sql` | `ARCHITECTURE.md §3.2.1` · `RFC-ENERGY-SIMULATION.md §2.1` · `src/visualization/search.py` |
+| `db/fire_risk.sql` | `FIRE-SAFETY-WORKPLAN.md §3.2` · `frontend/vworld.html` |
+| `src/visualization/search.py` FilterRequest | `ARCHITECTURE.md API` · `frontend/vworld.html applyFilters()` |
+
+기술 결정 배경: [docs/adr/](./docs/adr/) 폴더 (ADR-001~004 확정)
 
 ### 기술 스택 확정
 
@@ -62,7 +109,7 @@
 3. **VWorld 3D Data API (벌크 다운로드)**: 2019년 폐쇄 (국가보안). WebGL 뷰어로만 접근 가능
 4. **PublicDataReader 라이브러리**: HTTPS 엔드포인트 직접 호출로 대체 (http→https 문제)
 5. **React StrictMode**: Cesium Viewer lifecycle 충돌로 비활성화
-6. **서버사이드 pick**: PostGIS KNN (`<->` 연산자, 3ms 응답) — 72K centroid 클라이언트 로딩 불필요
+6. **서버사이드 pick**: PostGIS KNN (`<->` 연산자, 3ms 응답) — 766K centroid 클라이언트 로딩 불필요
 7. **건축물대장 2단계 수집**: 총괄표제부(단지) + 표제부(동별) → LATERAL JOIN으로 PNU당 최적 1건 매칭
 8. **EllipsoidTerrainProvider**: 지형 제거로 건물 높이 정확도 확보 (React 뷰어)
 9. **성능 최적화**: RequestScheduler, fog, GZip, AbortController, Entity eviction

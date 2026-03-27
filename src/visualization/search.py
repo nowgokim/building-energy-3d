@@ -116,7 +116,7 @@ def _filtered_rows(db: Session, filters: FilterRequest) -> tuple[list, int]:
             ST_Y(ST_Centroid(b.geom)) AS lat
         FROM buildings_enriched b
         LEFT JOIN LATERAL (
-            SELECT total_energy FROM energy_results WHERE pnu = b.pnu LIMIT 1
+            SELECT total_energy FROM energy_results WHERE pnu = b.pnu AND is_current = TRUE LIMIT 1
         ) er ON true
         {where_clause}
         LIMIT 1000

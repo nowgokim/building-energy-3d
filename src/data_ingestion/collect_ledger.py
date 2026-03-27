@@ -9,7 +9,7 @@ Usage:
 
 import logging
 import time
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 from xml.etree import ElementTree
 
 import httpx
@@ -245,13 +245,19 @@ def collect_mapo_ledger(api_key: str, db_url: str) -> Dict[str, Any]:
     return stats
 
 
-def collect_seoul_ledger(api_key: str, db_url: str, ledger_type: str = "recap") -> Dict[str, Any]:
-    """Collect building ledger data for all 25 districts of Seoul.
+def collect_seoul_ledger(
+    api_key: str,
+    db_url: str,
+    ledger_type: str = "recap",
+    sigungu_codes: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """Collect building ledger data for Seoul districts.
 
     Args:
         api_key: data.go.kr API service key.
         db_url: SQLAlchemy PostgreSQL connection URL.
         ledger_type: "recap" for 총괄표제부, "title" for 표제부.
+        sigungu_codes: 수집 대상 구 코드 목록. None이면 전체 25개 구.
 
     Returns:
         Dictionary with total_records and failed items.
@@ -260,14 +266,15 @@ def collect_seoul_ledger(api_key: str, db_url: str, ledger_type: str = "recap") 
     items_func = _items_to_dataframe if ledger_type == "recap" else _title_items_to_updates
     table_name = "building_ledger"
 
-    logger.info("Starting Seoul-wide %s collection (%d 자치구)", ledger_type, len(SEOUL_SIGUNGU_CODES))
+    target_codes = sigungu_codes if sigungu_codes is not None else SEOUL_SIGUNGU_CODES
+    logger.info("Starting Seoul-wide %s collection (%d 자치구)", ledger_type, len(target_codes))
 
     engine = create_engine(db_url)
     total_records = 0
     failed: list[str] = []
 
-    for gu_idx, sigungu_code in enumerate(SEOUL_SIGUNGU_CODES, start=1):
-        logger.info("=== [%d/%d] 자치구 %s ===", gu_idx, len(SEOUL_SIGUNGU_CODES), sigungu_code)
+    for gu_idx, sigungu_code in enumerate(target_codes, start=1):
+        logger.info("=== [%d/%d] 자치구 %s ===", gu_idx, len(target_codes), sigungu_code)
 
         # Get 법정동 codes for this 구
         try:

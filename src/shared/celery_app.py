@@ -18,6 +18,16 @@ celery.conf.update(
     task_track_started=True,
     task_time_limit=600,
     worker_prefetch_multiplier=1,
+    beat_schedule={
+        "collect-weather-hourly": {
+            "task": "src.fire_safety.tasks.collect_weather_task",
+            "schedule": 3600,  # 1시간마다
+        },
+        "detect-anomalies-hourly": {
+            "task": "src.monitor.tasks.detect_anomalies_task",
+            "schedule": 3600,  # 1시간마다
+        },
+    },
 )
 
 celery.autodiscover_tasks([
@@ -25,4 +35,5 @@ celery.autodiscover_tasks([
     "src.tile_generation",
     "src.simulation",
     "src.fire_safety",
+    "src.monitor",
 ])
