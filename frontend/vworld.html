@@ -393,7 +393,11 @@
 
   <!-- Fire Risk Legend (fire mode 활성 시 표시) -->
   <div id="fire-legend">
-    <div style="font-weight:600;margin-bottom:5px;color:#333">화재 위험도</div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">
+      <span style="font-weight:600;color:#333">화재 위험도</span>
+      <button onclick="toggleFireMode()" title="닫기"
+        style="background:none;border:none;cursor:pointer;font-size:14px;color:#888;padding:0;line-height:1">✕</button>
+    </div>
     <div><span class="dot" style="background:#ff4444"></span>고위험 (60점 이상)</div>
     <div style="margin:3px 0"><span class="dot" style="background:#ff8c00"></span>중위험 (35~59점)</div>
     <div><span class="dot" style="background:#22c55e"></span>저위험 (35점 미만)</div>
@@ -402,7 +406,11 @@
 
   <!-- CO2 Overlay Legend (co2 mode 활성 시 표시) -->
   <div id="co2-legend">
-    <div style="font-weight:600;margin-bottom:5px;color:#333">🌿 CO₂ 배출 강도</div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">
+      <span style="font-weight:600;color:#333">🌿 CO₂ 배출 강도</span>
+      <button onclick="toggleCo2Mode()" title="닫기"
+        style="background:none;border:none;cursor:pointer;font-size:14px;color:#888;padding:0;line-height:1">✕</button>
+    </div>
     <div class="co2-bar"></div>
     <div class="co2-scale">
       <span>낮음 (≤26)</span><span>31</span><span>36</span><span>높음 (42+)</span>
