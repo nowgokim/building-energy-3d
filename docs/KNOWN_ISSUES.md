@@ -39,59 +39,45 @@ VWorld footprint에는 포함되어 있으나 건축물대장(data.go.kr)에 등
 
 ---
 
-## KI-002: 부천시 건축물대장 미수집 (~70,000건)
+## KI-002: 부천시/경기도 건축물대장 미수집
 
 **발견일**: 2026-03-27
-**심각도**: 높음 (부천시 전체 건물 용도/연대 미분류)
-**현재 상태**: ✅ 해결책 확인 — 수집 실행 필요
+**심각도**: 높음
+**현재 상태**: ⚠️ 부분 해결 (2026-03-28)
 
-### 원인 분석
+### 실태 조사 결과 (2026-03-28)
 
-기존 `collect_ledger.py`는 서울 25개 자치구만 수집. VWorld footprint에는 부천시 인접
-건물 ~70,000건이 포함되어 있으나 ledger 미수집으로 `미분류` 처리.
+VWorld footprint DB에 경기도 건물 약 **175K건** 포함. 구성:
 
-수집 시도 실패 원인 (잘못된 접근):
-- **오류**: PublicDataReader `code_bdong(41195)`, `code_bdong(41197)`, `code_bdong(41199)` 사용
-- **이유**: 41195(원미구)/41197(소사구)/41199(오정구)는 **행정구 코드**. 2016년 책임읍면동제로 법정동이 `41190`(부천시 직속)으로 재편됨
-- 2024.1.1 행정구 부활 후에도 **법정동 코드 체계는 `41190` 직속 유지**
+| 구분 | 건수 | API 가용 | 해결 방법 |
+|------|------|---------|---------|
+| 부천시 (41190/41195/41197/41199) | ~39K | ❌ | 영구 데이터 갭 (아래 설명) |
+| 기타 경기도 (성남/광명/구리/안산 등) | ~135K | ✅ | `collect_gyeonggi_ledger()` |
 
-### 올바른 수집 방법
+#### 부천시 API 완전 불가 — 영구 데이터 갭
 
-부천시 법정동 24개 (`41190` 직속):
+실증 테스트 결과 (`2026-03-28`):
+- `sigunguCd=41190` (부천시 직속): `totalCount=0`
+- `sigunguCd=41195/41197/41199` (구 행정구): `totalCount=0`
+- 동일 API로 성남시(41131), 광명시(41281) 등은 정상 반환 확인
 
-| 코드 | 법정동 | 코드 | 법정동 |
-|------|--------|------|--------|
-| 10100 | 원미동 | 10200 | 심곡동 |
-| 10300 | 춘의동 | 10400 | 도당동 |
-| 10500 | 약대동 | 10600 | 소사동 |
-| 10700 | 역곡동 | 10800 | 중동 |
-| 10900 | 상동 | 11000 | 소사본동 |
-| 11100 | 심곡본동 | 11200 | 범박동 |
-| 11300 | 괴안동 | 11400 | 송내동 |
-| 11500 | 옥길동 | 11600 | 계수동 |
-| 11700 | 오정동 | 11800 | 여월동 |
-| 11900 | 작동 | 12000 | 원종동 |
-| 12100 | 고강동 | 12200 | 대장동 |
-| 12300 | 삼정동 | 12400 | 내동 |
+**원인**: 2016년 부천시 일반구 폐지 시 국토부 건축물대장 DB 마이그레이션 불완전.
+`getBrRecapTitleInfo` API가 부천시 코드에 대해 데이터를 반환하지 않음.
 
-수집 후 `buildings_enriched` MV REFRESH 필요:
+**대안**:
+- [경기도 부천시 건축물대장 파일 데이터 (data.go.kr)](https://www.data.go.kr/data/15144153/fileData.do) — 파일 다운로드 방식
 
-```sql
-REFRESH MATERIALIZED VIEW CONCURRENTLY buildings_enriched;
-REFRESH MATERIALIZED VIEW CONCURRENTLY building_fire_risk;
-```
+#### 기타 경기도 수집 완료 (2026-03-28)
 
-### 수집 실행 방법
+DB의 footprint PNU에서 직접 (sigungu, bdong) 조합 추출 → API 수집 실행.
+160개 조합, 총괄표제부 + 표제부 수집.
 
+수집 후 MV REFRESH 필요:
 ```bash
-# API 키 설정 후
-python -m src.data_ingestion.collect_ledger --region bucheon
-# 또는 직접 실행
-python -c "
-from src.data_ingestion.collect_ledger import collect_bucheon_ledger
-import os
-collect_bucheon_ledger(os.environ['DATA_GO_KR_API_KEY'])
-"
+docker compose exec db psql -U postgres -d buildings -c \
+  "REFRESH MATERIALIZED VIEW CONCURRENTLY buildings_enriched;"
+docker compose exec db psql -U postgres -d buildings -c \
+  "REFRESH MATERIALIZED VIEW CONCURRENTLY building_fire_risk;"
 ```
 
 ---

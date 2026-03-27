@@ -82,7 +82,7 @@ docker compose exec db psql -U postgres -d buildings -f /docker-entrypoint-initd
 | ID | 내용 | 건수 | 해결 난이도 |
 |----|------|------|------------|
 | KI-001 | 용도 '미분류' 건물 (서울 미등록 건물) | ~116K | ❌ 데이터 근본 부재 |
-| **KI-002** | **부천시(41190) 건축물대장 미수집** | **~70K** | **✅ `collect_bucheon_ledger()` 실행** |
+| **KI-002** | **부천시 API 불가(39K·영구갭) + 기타경기도 수집완료(135K)** | **~175K** | **⚠️ 부천시만 잔존 (파일다운로드 필요)** |
 | KI-003 | 이상 데이터 (built_year/height 오기입 등) | 46+1+62건 | △ views.sql CASE 추가 |
 | KI-004 | filter-result-badge z-index 겹침 | UI | △ CSS 1줄 수정 |
 
