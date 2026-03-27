@@ -371,7 +371,13 @@ def get_building_detail(
         # total_energy는 archetype/Tier1/2/4에서는 EUI(kWh/m²/yr),
         # Tier C(tier_c_metered)에서는 절대값(kWh/yr)
         is_tier_c = row.simulation_type == "tier_c_metered"
-        eui = round(total_e / area, 1) if (is_tier_c and area) else total_e
+        # Tier C: total_energy = 절대값(kWh/yr) → area로 나눠 EUI 계산
+        # 나머지: total_energy = EUI(kWh/m²/yr) 직접 사용
+        # Tier C인데 area 없으면 EUI 계산 불가 → None
+        if is_tier_c:
+            eui = round(total_e / area, 1) if area else None
+        else:
+            eui = total_e
         result["properties"]["energy"] = {
             "total_energy": total_e,
             "eui_kwh_m2": eui,
@@ -434,11 +440,16 @@ def get_retrofit_simulation(
             detail="Energy data not available for this building",
         )
 
-    # EUI 결정
+    # EUI 결정 (Tier C는 절대값 → area로 나눔, 나머지는 EUI 직접)
     is_tier_c = row.simulation_type == "tier_c_metered"
     area = float(row.total_area) if row.total_area else None
     total_e = float(row.total_energy)
-    eui = round(total_e / area, 1) if (is_tier_c and area) else total_e
+    if is_tier_c:
+        if not area:
+            raise HTTPException(status_code=422, detail="Tier C building has no area — EUI cannot be computed")
+        eui = round(total_e / area, 1)
+    else:
+        eui = total_e
     if eui <= 0:
         raise HTTPException(status_code=422, detail="EUI must be positive")
 

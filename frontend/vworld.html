@@ -103,6 +103,7 @@
     #filter-btn  { top: 240px; }
     #area-btn    { top: 276px; }
     #mode-btn    { top: 312px; }
+    #spread-btn  { top: 348px; }
     #fire-legend {
       display: none; position: absolute; bottom: 40px; left: 12px; z-index: 100;
       background: rgba(255,255,255,0.93); border-radius: 8px; padding: 8px 12px;
@@ -111,7 +112,7 @@
     #fire-legend .dot { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:4px; vertical-align:middle; }
 
     #co2-legend {
-      display: none; position: absolute; bottom: 40px; left: 12px; z-index: 100;
+      display: none; position: absolute; bottom: 40px; right: 12px; z-index: 100;
       background: rgba(255,255,255,0.93); border-radius: 8px; padding: 8px 12px;
       box-shadow: 0 2px 8px rgba(0,0,0,0.12); font-size: 11px; min-width: 200px;
     }
@@ -127,12 +128,9 @@
       background: rgba(124,58,237,0.9); color: #fff;
       padding: 4px 10px; border-radius: 6px; font-size: 11px; white-space: nowrap;
     }
-    /* F2 화재 확산 시뮬레이션 버튼 위치 */
-    #spread-btn { top: 312px; }
-
     /* F2 화재 확산 시뮬레이션 패널 */
     #spread-panel {
-      display: none; position: absolute; top: 60px; left: 145px; z-index: 100;
+      display: none; position: absolute; top: 60px; right: 12px; z-index: 100;
       background: rgba(255,255,255,0.97); border-radius: 10px; padding: 12px;
       box-shadow: 0 2px 16px rgba(0,0,0,0.18); width: 240px;
       max-height: calc(100vh - 100px); overflow-y: auto; font-size: 12px;

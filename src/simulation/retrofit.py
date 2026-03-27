@@ -127,7 +127,7 @@ class MeasureResult:
     description: str
     eui_saving_kwh_m2: float           # EUI 절감량 (kWh/m²/yr)
     saving_pct: float                  # 전체 EUI 대비 절감 비율 (0-1)
-    co2_saving_kg_m2: float            # CO2 절감 (kgCO₂/m²/yr)
+    co2_saving_kg_m2: float | None     # CO2 절감 (kgCO₂/m²/yr). co2 입력 없으면 None
     cost_per_m2: int                   # 시공비 단가 (원/m²)
     cost_total_krw: int                # 총 시공비 (원)
     annual_saving_krw: int             # 연간 에너지비 절감액 (원/yr)
@@ -261,7 +261,7 @@ def simulate_retrofit(
             description=spec["description"],
             eui_saving_kwh_m2=round(saving_kwh_m2, 2),
             saving_pct=round(saving_pct, 4),
-            co2_saving_kg_m2=round(co2_saving, 2) if co2_saving is not None else 0.0,
+            co2_saving_kg_m2=round(co2_saving, 2) if co2_saving is not None else None,
             cost_per_m2=cost_per_m2,
             cost_total_krw=cost_total,
             annual_saving_krw=annual_saving,
