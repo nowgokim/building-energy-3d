@@ -17,12 +17,14 @@ WITH scored AS (
         END AS structure_score,
 
         -- 연령 위험도 (30점): 구건물 = 소방법 이전 설계
+        -- 고층(10층+) 건물의 1990년 이전 built_year는 구건물 대장 오염 데이터로 간주 → NULL 처리
         CASE
-            WHEN built_year IS NULL  THEN 25
-            WHEN built_year < 1980   THEN 30
-            WHEN built_year < 2000   THEN 20
-            WHEN built_year < 2010   THEN 12
-            ELSE                          5
+            WHEN built_year IS NULL                          THEN 25
+            WHEN floors_above >= 10 AND built_year < 1990   THEN 25  -- 데이터 오염 보정
+            WHEN built_year < 1980                          THEN 30
+            WHEN built_year < 2000                          THEN 20
+            WHEN built_year < 2010                          THEN 12
+            ELSE                                                  5
         END AS age_score,
 
         -- 용도 위험도 (20점): 대피 취약 + 위험물 용도 가중
