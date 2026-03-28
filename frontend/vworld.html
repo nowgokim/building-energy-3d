@@ -1899,6 +1899,7 @@
       panel.style.display = spreadPanelVisible ? 'block' : 'none';
       btn.style.background = spreadPanelVisible ? '#f97316' : 'rgba(255,255,255,0.92)';
       btn.style.color       = spreadPanelVisible ? '#fff' : '#333';
+      if (!spreadPanelVisible) clearSpread();
     }
 
     function startOriginSelect() {

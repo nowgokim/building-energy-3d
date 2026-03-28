@@ -301,7 +301,7 @@ def co2_overlay(
               bc.centroid,
               ST_MakeEnvelope(:west, :south, :east, :north, 4326)
           )
-        ORDER BY er.co2_kg_m2 DESC
+        ORDER BY (hashtext(bc.pnu) & 65535)
         LIMIT 5000
     """)
     rows = db.execute(sql, {"west": west, "south": south, "east": east, "north": north}).fetchall()
