@@ -471,3 +471,97 @@ def estimate_energy(archetype_params: dict[str, Any]) -> dict[str, float]:
     )
 
     return result
+
+
+# ---------------------------------------------------------------------------
+# Korean_BB lookup integration (Phase A / A')
+# ---------------------------------------------------------------------------
+
+# archetypes.py usage key → Korean_BB archetype ID
+_USAGE_TO_KBB: dict[str, str] = {
+    "apartment":           "apartment_highrise",  # floors_above ≤ 5 → midrise (런타임 판별)
+    "residential_single":  "apartment_midrise",
+    "office":              "office",
+    "retail":              "small_office",         # 근린생활시설 → small_office
+    "education":           "school",
+    "hospital":            "hospital",
+    "warehouse":           "warehouse",
+    "cultural":            "retail",               # 문화/집회 → retail 유사
+    "mixed_use":           "hotel",                # 숙박/복합 → hotel 유사
+}
+
+
+def _built_year_to_kbb_vintage(built_year: int | None) -> str:
+    """Map built_year to Korean_BB vintage label (5-구간)."""
+    if built_year is None:
+        return "2001_2010"
+    if built_year < 1990:
+        return "pre1990"
+    if built_year < 2001:
+        return "1991_2000"
+    if built_year < 2011:
+        return "2001_2010"
+    if built_year < 2018:
+        return "2011_2017"
+    return "2018_plus"
+
+
+def get_korean_bb_eui(
+    usage_type: str,
+    built_year: int | None,
+    floors_above: int | None = None,
+    city: str = "seoul",
+) -> float | None:
+    """Calibrated EUI (kWh/m²/yr) from Korean_BB lookup + Tier 1 correction.
+
+    Korean_BB 시뮬레이션 EUI 중앙값에 Tier 1 실측 기반 보정계수를 곱한다.
+
+    Parameters
+    ----------
+    usage_type:
+        한국어 용도 (예: "업무시설", "제2종근린생활시설")
+    built_year:
+        준공 연도. None 이면 2001-2010 vintage로 처리.
+    floors_above:
+        지상 층수. 아파트 고층/중층 구분에 사용.
+    city:
+        도시 ('seoul', 'busan', 'daegu', 'gangneung', 'jeju'). 기본: 'seoul'.
+
+    Returns
+    -------
+    float | None
+        보정된 EUI (kWh/m²/yr). 룩업 실패 시 None.
+    """
+    try:
+        from src.simulation.eui_lookup import lookup_eui
+        from src.simulation.calibration_factors import get_correction_factor
+    except ImportError:
+        logger.debug("eui_lookup / calibration_factors 모듈 없음 → Korean_BB 룩업 생략")
+        return None
+
+    usage = _normalize_usage(usage_type)
+
+    # 아파트: 층수 기반 고층/중층 구분
+    if usage == "apartment":
+        kbb_arch = (
+            "apartment_midrise"
+            if (floors_above is not None and floors_above <= 5)
+            else "apartment_highrise"
+        )
+    else:
+        kbb_arch = _USAGE_TO_KBB.get(usage, "small_office")
+
+    vintage = _built_year_to_kbb_vintage(built_year)
+
+    stats = lookup_eui(kbb_arch, vintage, city)
+    if stats is None:
+        logger.debug("Korean_BB 룩업 실패: arch=%s vintage=%s city=%s", kbb_arch, vintage, city)
+        return None
+
+    cf = get_correction_factor(usage_type)
+    calibrated = stats["median"] * cf
+    logger.debug(
+        "Korean_BB EUI: arch=%s vintage=%s median=%.1f cf=%.3f → %.1f kWh/m²/yr",
+        kbb_arch, vintage, stats["median"], cf, calibrated,
+    )
+    return round(calibrated, 1)
