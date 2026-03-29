@@ -22,6 +22,25 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/buildings", tags=["buildings"])
 
 
+def _compute_eui(
+    total_energy: Optional[float],
+    total_area: Optional[float],
+    simulation_type: Optional[str],
+) -> Optional[float]:
+    """EUI(kWh/m²/yr) 반환.
+
+    - Tier C(tier_c_metered): total_energy는 절대값(kWh/yr) → area로 나눔
+    - 나머지: total_energy가 이미 EUI(kWh/m²/yr)
+    """
+    if total_energy is None:
+        return None
+    if simulation_type == "tier_c_metered":
+        if not total_area:
+            return None
+        return round(total_energy / total_area, 1)
+    return total_energy
+
+
 @router.get("/pick")
 def pick_building(
     lng: float = Query(..., description="Click longitude"),
@@ -408,9 +427,8 @@ def compare_buildings(
         if r is None:
             raise HTTPException(status_code=404, detail=f"Building {pnu} not found")
         area = float(r.total_area) if r.total_area else None
-        is_tier_c = r.simulation_type == "tier_c_metered"
         total_e = float(r.total_energy) if r.total_energy else None
-        eui = (round(total_e / area, 1) if area else None) if (is_tier_c and total_e) else total_e
+        eui = _compute_eui(total_e, area, r.simulation_type)
         return {
             "pnu": r.pnu, "building_name": r.building_name,
             "usage_type": r.usage_type, "vintage_class": r.vintage_class,
@@ -588,16 +606,7 @@ def get_building_detail(
     if row.total_energy is not None:
         total_e = float(row.total_energy)
         area = float(row.total_area) if row.total_area else None
-        # total_energy는 archetype/Tier1/2/4에서는 EUI(kWh/m²/yr),
-        # Tier C(tier_c_metered)에서는 절대값(kWh/yr)
-        is_tier_c = row.simulation_type == "tier_c_metered"
-        # Tier C: total_energy = 절대값(kWh/yr) → area로 나눠 EUI 계산
-        # 나머지: total_energy = EUI(kWh/m²/yr) 직접 사용
-        # Tier C인데 area 없으면 EUI 계산 불가 → None
-        if is_tier_c:
-            eui = round(total_e / area, 1) if area else None
-        else:
-            eui = total_e
+        eui = _compute_eui(total_e, area, row.simulation_type)
         result["properties"]["energy"] = {
             "total_energy": total_e,
             "eui_kwh_m2": eui,
@@ -660,16 +669,11 @@ def get_retrofit_simulation(
             detail="Energy data not available for this building",
         )
 
-    # EUI 결정 (Tier C는 절대값 → area로 나눔, 나머지는 EUI 직접)
-    is_tier_c = row.simulation_type == "tier_c_metered"
     area = float(row.total_area) if row.total_area else None
     total_e = float(row.total_energy)
-    if is_tier_c:
-        if not area:
-            raise HTTPException(status_code=422, detail="Tier C building has no area — EUI cannot be computed")
-        eui = round(total_e / area, 1)
-    else:
-        eui = total_e
+    eui = _compute_eui(total_e, area, row.simulation_type)
+    if eui is None and row.simulation_type == "tier_c_metered":
+        raise HTTPException(status_code=422, detail="Tier C building has no area — EUI cannot be computed")
     if eui <= 0:
         raise HTTPException(status_code=422, detail="EUI must be positive")
 

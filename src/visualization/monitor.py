@@ -28,7 +28,7 @@ from fastapi import (
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from src.shared.cache import get_redis as _get_redis_factory
+from src.shared.cache import cache_delete_pattern, cache_get, cache_set, get_redis as _get_redis_factory
 from src.shared.database import get_db_dependency, engine
 from src.shared.monitor_models import (
     MonitorBuildingDetail,
@@ -48,54 +48,10 @@ def _get_redis():
     return _get_redis_factory()
 
 
-# ── 캐시 헬퍼 ────────────────────────────────────────────────────────────────
-
-def _cache_get(key: str) -> Optional[dict]:
-    """Redis에서 JSON 캐시 조회. 미스이면 None 반환."""
-    try:
-        r = _get_redis()
-        if r is None:
-            return None
-        raw = r.get(key)
-        if raw:
-            return json.loads(raw)
-    except Exception as exc:
-        logger.warning("Redis GET error key=%s: %s", key, exc)
-    return None
-
-
-def _cache_set(key: str, data: dict, ttl: int) -> None:
-    """Redis에 JSON 캐시 저장. Redis 장애 시 조용히 무시."""
-    try:
-        r = _get_redis()
-        if r is None:
-            return
-        r.setex(key, ttl, json.dumps(data, default=str))
-    except Exception as exc:
-        logger.warning("Redis SET error key=%s: %s", key, exc)
-
-
-def _cache_delete_pattern(pattern: str) -> None:
-    """패턴 매칭 키를 일괄 무효화. 업로드/이상치 갱신 시 사용.
-
-    KEYS 대신 SCAN 커서 방식을 사용한다. KEYS는 Redis를 blocking하므로
-    프로덕션 환경에서 대규모 키셋이 있을 경우 응답 지연을 유발한다.
-    """
-    try:
-        r = _get_redis()
-        if r is None:
-            return
-        cursor = 0
-        keys_to_delete: list[str] = []
-        while True:
-            cursor, keys = r.scan(cursor, match=pattern, count=200)
-            keys_to_delete.extend(keys)
-            if cursor == 0:
-                break
-        if keys_to_delete:
-            r.delete(*keys_to_delete)
-    except Exception as exc:
-        logger.warning("Redis DEL error pattern=%s: %s", pattern, exc)
+# 로컬 별칭 — 기존 호출부 변경 없이 shared 헬퍼 사용
+_cache_get = cache_get
+_cache_set = cache_set
+_cache_delete_pattern = cache_delete_pattern
 
 
 # ── WebSocket 연결 관리 ────────────────────────────────────────────────────────

@@ -14,19 +14,11 @@ from sqlalchemy.orm import Session
 
 from src.shared.database import get_db_dependency
 from src.shared.limiter import limiter
+from src.shared.utils import optional_float as _float
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/models", tags=["models"])
-
-
-# ---------------------------------------------------------------------------
-# 내부 유틸리티
-# ---------------------------------------------------------------------------
-
-def _float(value) -> Optional[float]:
-    """NULL 허용 float 변환 — DB NULL은 None으로, 유효값은 float으로 반환한다."""
-    return float(value) if value is not None else None
 
 
 # ---------------------------------------------------------------------------

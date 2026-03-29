@@ -7,7 +7,6 @@ and CSV export of filtered results.
 
 import csv
 import io
-import json
 import logging
 from typing import Optional
 
@@ -17,7 +16,7 @@ from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from src.shared.cache import get_redis as _get_redis
+from src.shared.cache import cache_get as _cache_get, cache_set as _cache_set, get_redis as _get_redis
 from src.shared.database import get_db_dependency
 from src.shared.limiter import limiter
 
@@ -162,16 +161,11 @@ _FILTER_OPTIONS_TTL = 86400  # 24시간 (용도/연대/등급 옵션은 거의 �
 def get_filter_options(db: Session = Depends(get_db_dependency)) -> dict:
     """Return distinct filter values available in the database.
 
-    Results are cached in Redis for 1 hour to avoid a full seq scan on 770K rows.
+    Results are cached in Redis for 24 hours to avoid a full seq scan on 770K rows.
     """
-    rc = _get_redis()
-    if rc is not None:
-        try:
-            cached = rc.get(_FILTER_OPTIONS_KEY)
-            if cached:
-                return json.loads(cached)
-        except Exception:
-            pass
+    cached = _cache_get(_FILTER_OPTIONS_KEY)
+    if cached is not None:
+        return cached
 
     sql = text("""
         SELECT
@@ -187,11 +181,7 @@ def get_filter_options(db: Session = Depends(get_db_dependency)) -> dict:
         "energy_grades":   row.energy_grades  or [],
     }
 
-    if rc is not None:
-        try:
-            rc.setex(_FILTER_OPTIONS_KEY, _FILTER_OPTIONS_TTL, json.dumps(result))
-        except Exception:
-            pass
+    _cache_set(_FILTER_OPTIONS_KEY, result, _FILTER_OPTIONS_TTL)
 
     return result
 
