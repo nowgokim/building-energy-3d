@@ -394,9 +394,11 @@ def compare_buildings(
             b.structure_type, b.energy_grade,
             er.total_energy, er.heating, er.cooling, er.hot_water,
             er.lighting, er.ventilation, er.co2_kg_m2,
-            er.primary_energy_kwh_m2, er.data_tier, er.simulation_type
+            er.primary_energy_kwh_m2, er.data_tier, er.simulation_type,
+            ST_X(bc.centroid) AS lng, ST_Y(bc.centroid) AS lat
         FROM buildings_enriched b
         LEFT JOIN energy_results er ON b.pnu = er.pnu AND er.is_current = TRUE
+        LEFT JOIN building_centroids bc ON bc.pnu = b.pnu
         WHERE b.pnu = ANY(:pnus)
     """)
     rows = {r.pnu: r for r in db.execute(sql, {"pnus": [pnu1, pnu2]}).fetchall()}
@@ -426,6 +428,8 @@ def compare_buildings(
             "primary_energy_kwh_m2": float(r.primary_energy_kwh_m2) if r.primary_energy_kwh_m2 else None,
             "data_tier": r.data_tier, "simulation_type": r.simulation_type,
             "zeb_gap": round(eui - _ZEB_THRESHOLD, 1) if eui else None,
+            "lng": float(r.lng) if r.lng else None,
+            "lat": float(r.lat) if r.lat else None,
         }
 
     b1, b2 = _serialize(pnu1), _serialize(pnu2)

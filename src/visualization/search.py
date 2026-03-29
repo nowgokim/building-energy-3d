@@ -308,6 +308,61 @@ def co2_overlay(
     }
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# GET /api/v1/overlay/zeb  — ZEB 달성 여부 오버레이 (최대 5,000건)
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get("/overlay/zeb")
+def zeb_overlay(
+    west:  float = Query(...),
+    south: float = Query(...),
+    east:  float = Query(...),
+    north: float = Query(...),
+    db: Session = Depends(get_db_dependency),
+) -> dict:
+    """뷰포트 내 ZEB 달성 여부 오버레이.
+
+    - zeb: true = EUI ≤ 150 (ZEB 달성), false = 초과
+    - eui: total_energy kWh/m²/yr (SSOT: energy_results)
+    """
+    ZEB_THRESHOLD = 150.0
+    sql = text("""
+        SELECT
+            bc.pnu,
+            ST_X(bc.centroid) AS lng,
+            ST_Y(bc.centroid) AS lat,
+            er.total_energy   AS eui
+        FROM building_centroids bc
+        JOIN energy_results er ON er.pnu = bc.pnu AND er.is_current = TRUE
+        WHERE er.total_energy IS NOT NULL
+          AND er.total_energy > 0
+          AND ST_Within(
+              bc.centroid,
+              ST_MakeEnvelope(:west, :south, :east, :north, 4326)
+          )
+        ORDER BY (hashtext(bc.pnu) & 65535)
+        LIMIT 5000
+    """)
+    rows = db.execute(sql, {"west": west, "south": south, "east": east, "north": north}).fetchall()
+    zeb_count = sum(1 for r in rows if float(r.eui) <= ZEB_THRESHOLD)
+    return {
+        "count": len(rows),
+        "zeb_count": zeb_count,
+        "non_zeb_count": len(rows) - zeb_count,
+        "zeb_threshold": ZEB_THRESHOLD,
+        "features": [
+            {
+                "pnu": r.pnu,
+                "lng": float(r.lng),
+                "lat": float(r.lat),
+                "eui": round(float(r.eui), 1),
+                "zeb": float(r.eui) <= ZEB_THRESHOLD,
+            }
+            for r in rows
+        ],
+    }
+
+
 @router.get("/filter/export")
 def export_filtered_buildings(
     energy_grades: Optional[str] = Query(None, description="Comma-separated energy grades"),

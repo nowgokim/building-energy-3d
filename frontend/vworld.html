@@ -116,13 +116,14 @@
     #texture-btn { top: 60px; }
     #fire-btn    { top: 96px; }
     #co2-btn     { top: 132px; }
-    #cluster-btn { top: 168px; }
-    #station-btn { top: 204px; }
-    #filter-btn  { top: 240px; }
-    #area-btn    { top: 276px; }
-    #mode-btn    { top: 312px; }
-    #spread-btn   { top: 348px; }
-    #analysis-btn { top: 384px; }
+    #zeb-btn     { top: 168px; }
+    #cluster-btn { top: 204px; }
+    #station-btn { top: 240px; }
+    #filter-btn  { top: 276px; }
+    #area-btn    { top: 312px; }
+    #mode-btn    { top: 348px; }
+    #spread-btn  { top: 384px; }
+    #analysis-btn { top: 420px; }
     /* 📊 분석 패널 */
     #analysis-panel {
       display: none; position: absolute; top: 12px; right: 12px; width: 320px;
@@ -178,6 +179,13 @@
       background: linear-gradient(to right, #22c55e, #f59e0b, #ef4444);
     }
     #co2-legend .co2-scale { display: flex; justify-content: space-between; font-size: 9px; color: #888; }
+
+    #zeb-legend {
+      display: none; position: absolute; bottom: 76px; right: 12px; z-index: 100;
+      background: rgba(255,255,255,0.93); border-radius: 8px; padding: 8px 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.12); font-size: 11px; min-width: 200px;
+    }
+    #zeb-legend .zeb-dot { display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:5px; vertical-align:middle; }
 
     /* 영역 선택 상태 표시 바 */
     #area-status-bar {
@@ -287,6 +295,7 @@
   <button id="texture-btn" class="map-btn" onclick="toggleTexturePanel()">🎨 면 텍스처</button>
   <button id="fire-btn"    class="map-btn" onclick="toggleFireMode()">🔥 화재위험도</button>
   <button id="co2-btn"     class="map-btn" onclick="toggleCo2Mode()">🌿 CO2 오버레이</button>
+  <button id="zeb-btn"     class="map-btn" onclick="toggleZebMode()">🟢 ZEB 전환 지도</button>
   <button id="cluster-btn" class="map-btn" onclick="toggleClusters()" title="화재 위험도 60점 이상 건물이 반경 100m 내 밀집된 구역">🔴 화재 취약 밀집구역</button>
   <button id="station-btn" class="map-btn" onclick="toggleStations()">🚒 소방서 위치</button>
   <button id="filter-btn"  class="map-btn" onclick="toggleFilterPanel()">🔍 필터</button>
@@ -538,6 +547,19 @@
     </div>
     <div style="font-size:10px;color:#555;margin-top:5px">단위: kgCO₂/m²·yr</div>
     <div id="co2-status" style="margin-top:6px;color:#888;font-size:10px;"></div>
+  </div>
+
+  <!-- ZEB 전환 지도 Legend -->
+  <div id="zeb-legend">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+      <span style="font-weight:600;color:#333">🟢 ZEB 전환 지도</span>
+      <button onclick="toggleZebMode()" title="닫기"
+        style="background:none;border:none;cursor:pointer;font-size:14px;color:#888;padding:0;line-height:1">✕</button>
+    </div>
+    <div><span class="zeb-dot" style="background:#16a34a"></span>ZEB 달성 (EUI ≤ 150)</div>
+    <div style="margin-top:4px"><span class="zeb-dot" style="background:#ef4444"></span>ZEB 미달성 (EUI &gt; 150)</div>
+    <div style="font-size:10px;color:#555;margin-top:5px">기준: 1차에너지 150 kWh/m²/yr (2025년 녹색건축법)</div>
+    <div id="zeb-status" style="margin-top:6px;color:#888;font-size:10px;"></div>
   </div>
 
   <!-- Texture Overlay Panel -->
@@ -976,6 +998,91 @@
         btn.style.color = '#333';
         legend.style.display = 'none';
         clearCo2Layer();
+      }
+    }
+
+    // --- ZEB 전환 지도 Layer ---
+    let zebPointCollection = null;
+    let zebMode = false;
+    let zebMoveEndRemover = null;
+    let zebAbortCtrl = null;
+
+    async function loadZebLayer() {
+      if (!ws3d?.viewer) return;
+      const viewer = ws3d.viewer;
+      if (zebAbortCtrl) zebAbortCtrl.abort();
+      zebAbortCtrl = new AbortController();
+      clearZebLayer();
+      const camHeight = viewer.camera.positionCartographic.height;
+      if (camHeight > VWORLD_CONFIG.CO2_ZOOM_THRESHOLD) {
+        document.getElementById('zeb-status').textContent = '더 가까이 확대하면 ZEB 현황을 표시합니다';
+        if (zebMoveEndRemover) { zebMoveEndRemover(); zebMoveEndRemover = null; }
+        zebMoveEndRemover = viewer.camera.moveEnd.addEventListener(() => {
+          zebMoveEndRemover = null;
+          if (zebMode) loadZebLayer();
+        });
+        return;
+      }
+      const rect = viewer.camera.computeViewRectangle();
+      if (!rect) return;
+      const west  = Cesium.Math.toDegrees(rect.west);
+      const south = Cesium.Math.toDegrees(rect.south);
+      const east  = Cesium.Math.toDegrees(rect.east);
+      const north = Cesium.Math.toDegrees(rect.north);
+      document.getElementById('zeb-status').textContent = '로딩 중...';
+      try {
+        const resp = await fetch(
+          `${API}/overlay/zeb?west=${west}&south=${south}&east=${east}&north=${north}`,
+          { signal: zebAbortCtrl.signal }
+        );
+        const data = await resp.json();
+        zebPointCollection = viewer.scene.primitives.add(new Cesium.PointPrimitiveCollection());
+        (data.features || []).forEach(f => {
+          zebPointCollection.add({
+            position: Cesium.Cartesian3.fromDegrees(f.lng, f.lat, 5),
+            color: f.zeb
+              ? Cesium.Color.fromCssColorString('#16a34a').withAlpha(0.85)   // ZEB 달성 — 초록
+              : Cesium.Color.fromCssColorString('#ef4444').withAlpha(0.80),  // 미달성 — 빨강
+            pixelSize: f.zeb ? 6 : 8,
+            outlineColor: Cesium.Color.WHITE.withAlpha(0.4),
+            outlineWidth: 1,
+            disableDepthTestDistance: Number.POSITIVE_INFINITY,
+          });
+        });
+        document.getElementById('zeb-status').textContent =
+          `조회 ${data.count.toLocaleString()}건 · ZEB 달성 ${data.zeb_count.toLocaleString()}건 (${data.count > 0 ? Math.round(data.zeb_count / data.count * 100) : 0}%)`;
+      } catch(e) {
+        if (e.name !== 'AbortError')
+          document.getElementById('zeb-status').textContent = '로드 실패: ' + e.message;
+      }
+    }
+
+    function clearZebLayer() {
+      if (zebPointCollection) {
+        ws3d.viewer.scene.primitives.remove(zebPointCollection);
+        zebPointCollection = null;
+      }
+      document.getElementById('zeb-status').textContent = '';
+    }
+
+    function toggleZebMode() {
+      zebMode = !zebMode;
+      const btn    = document.getElementById('zeb-btn');
+      const legend = document.getElementById('zeb-legend');
+      if (zebMode) {
+        btn.textContent = '🟢 ZEB 전환 지도 ON';
+        btn.style.background = '#16a34a';
+        btn.style.color = '#fff';
+        legend.style.display = 'block';
+        loadZebLayer();
+        // 카메라 이동 완료 시마다 재조회
+        ws3d.viewer.camera.moveEnd.addEventListener(() => { if (zebMode) loadZebLayer(); });
+      } else {
+        btn.textContent = '🟢 ZEB 전환 지도';
+        btn.style.background = 'rgba(255,255,255,0.92)';
+        btn.style.color = '#333';
+        legend.style.display = 'none';
+        clearZebLayer();
       }
     }
 
@@ -2007,6 +2114,10 @@
       analysisPanelOpen = !analysisPanelOpen;
       const el = document.getElementById('analysis-panel');
       el.style.display = analysisPanelOpen ? 'block' : 'none';
+      if (!analysisPanelOpen) {
+        // 패널 닫을 때 그린리모델링 마커 정리
+        clearRetrofitMarkers();
+      }
       if (analysisPanelOpen) {
         // 건물 상세 패널 닫기
         document.getElementById('panel').style.display = 'none';
@@ -2092,6 +2203,8 @@
     // ─────────────────────────────────────────────────────────────────────────
 
     function switchApTab(tab) {
+      // 다른 탭으로 이동 시 그린리모델링 마커 제거
+      if (apCurrentTab === 'retrofit' && tab !== 'retrofit') clearRetrofitMarkers();
       apCurrentTab = tab;
       ['district','compare','retrofit'].forEach(t => {
         document.getElementById('ap-tab-' + t).classList.toggle('active', t === tab);
@@ -2099,7 +2212,6 @@
       });
       if (tab === 'district' && !districtDataCache) loadDistrictStats();
       if (tab === 'retrofit' && document.getElementById('ap-rt-sigungu').options.length === 1) {
-        // 구 목록 채우기 (district stats 로드 후)
         loadDistrictStatsForFilter();
       }
     }
@@ -2205,15 +2317,50 @@
         .catch(() => { resultEl.innerHTML = '<div style="color:#ef4444">로드 실패</div>'; });
     }
 
+    // 비교 결과에서 건물 클릭 → 지도 이동 + 핀 강조
+    let _compareHighlights = [];
+    function flyToCompareBuilding(b) {
+      if (!ws3d?.viewer || !b.lng || !b.lat) return;
+      // 기존 강조 핀 제거
+      _compareHighlights.forEach(e => ws3d.viewer.entities.remove(e));
+      _compareHighlights = [];
+      // 노란 핀 추가
+      const ent = ws3d.viewer.entities.add({
+        position: Cesium.Cartesian3.fromDegrees(b.lng, b.lat, 20),
+        point: { pixelSize: 16, color: Cesium.Color.YELLOW, outlineColor: Cesium.Color.BLACK, outlineWidth: 2, disableDepthTestDistance: Number.POSITIVE_INFINITY },
+        label: {
+          text: b.building_name || b.pnu,
+          font: '12px sans-serif', fillColor: Cesium.Color.WHITE,
+          style: Cesium.LabelStyle.FILL_AND_OUTLINE, outlineWidth: 2,
+          verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+          pixelOffset: new Cesium.Cartesian2(0, -20),
+          disableDepthTestDistance: Number.POSITIVE_INFINITY,
+        },
+      });
+      _compareHighlights.push(ent);
+      ws3d.viewer.camera.flyTo({
+        destination: Cesium.Cartesian3.fromDegrees(b.lng, b.lat, 600),
+        orientation: { heading: 0, pitch: Cesium.Math.toRadians(-45), roll: 0 },
+        duration: 1.2,
+      });
+      // 3초 후 핀 제거
+      setTimeout(() => {
+        _compareHighlights.forEach(e => ws3d.viewer.entities.remove(e));
+        _compareHighlights = [];
+      }, 5000);
+    }
+
     function renderCompareResult(data) {
       const el = document.getElementById('ap-compare-result');
       const b1 = data.building1, b2 = data.building2;
       const diff = data.diff;
       const fmt = v => v != null ? v.toFixed(1) : '-';
       const diffStr = v => v == null ? '' : (v > 0 ? `<span style="color:#ef4444">+${v.toFixed(1)}</span>` : `<span style="color:#16a34a">${v.toFixed(1)}</span>`);
+      const nameBtn = (b) => `<span style="cursor:pointer;color:#2563eb;text-decoration:underline;font-size:10px"
+        title="지도에서 보기">${escapeHtml(b.building_name||b.pnu)}</span>`;
       el.innerHTML = `
         <table class="ap-table" style="margin-top:4px">
-          <thead><tr><th>항목</th><th>${escapeHtml(b1.building_name||b1.pnu)}</th><th>${escapeHtml(b2.building_name||b2.pnu)}</th><th>차이</th></tr></thead>
+          <thead><tr><th>항목</th><th id="ap-cmp-h1">${nameBtn(b1)}</th><th id="ap-cmp-h2">${nameBtn(b2)}</th><th>차이</th></tr></thead>
           <tbody>
             <tr><td>EUI (kWh/m²)</td><td>${fmt(b1.eui_kwh_m2)}</td><td>${fmt(b2.eui_kwh_m2)}</td><td>${diffStr(diff.eui_kwh_m2)}</td></tr>
             <tr><td>ZEB 갭</td><td>${fmt(b1.zeb_gap)}</td><td>${fmt(b2.zeb_gap)}</td><td></td></tr>
@@ -2228,11 +2375,51 @@
               <td></td></tr>
           </tbody>
         </table>
-        <div style="font-size:10px;color:#aaa;margin-top:6px">ZEB 기준: ${data.zeb_threshold} kWh/m²/yr | SSOT: energy_results</div>
+        <div style="font-size:10px;color:#aaa;margin-top:6px">건물명 클릭 → 지도 이동 | ZEB 기준: ${data.zeb_threshold} kWh/m²/yr</div>
       `;
+      // 건물명 클릭 이벤트 — innerHTML 후 직접 bind
+      document.getElementById('ap-cmp-h1').querySelector('span').onclick = () => flyToCompareBuilding(b1);
+      document.getElementById('ap-cmp-h2').querySelector('span').onclick = () => flyToCompareBuilding(b2);
     }
 
     // ── 그린리모델링 우선순위 ─────────────────────────────────────────────────
+    let _retrofitMarkers = [];  // 지도 핀 목록
+
+    function clearRetrofitMarkers() {
+      if (!ws3d?.viewer) return;
+      _retrofitMarkers.forEach(e => ws3d.viewer.entities.remove(e));
+      _retrofitMarkers = [];
+    }
+
+    function showRetrofitMarkers(buildings) {
+      clearRetrofitMarkers();
+      if (!ws3d?.viewer) return;
+      buildings.forEach((b, i) => {
+        if (!b.lng || !b.lat) return;
+        // 순위에 따라 빨강(1위)→주황→노랑 그라데이션
+        const ratio = i / Math.max(buildings.length - 1, 1);
+        const r = 239;
+        const g = Math.round(68 + ratio * (251 - 68));
+        const col = Cesium.Color.fromBytes(r, g, 46, 220);
+        const ent = ws3d.viewer.entities.add({
+          position: Cesium.Cartesian3.fromDegrees(b.lng, b.lat, 15),
+          point: { pixelSize: 10, color: col, outlineColor: Cesium.Color.WHITE, outlineWidth: 1.5,
+                   disableDepthTestDistance: Number.POSITIVE_INFINITY },
+          label: {
+            text: `${b.rank}`,
+            font: 'bold 9px sans-serif', fillColor: Cesium.Color.WHITE,
+            style: Cesium.LabelStyle.FILL,
+            verticalOrigin: Cesium.VerticalOrigin.CENTER,
+            horizontalOrigin: Cesium.HorizontalOrigin.CENTER,
+            pixelOffset: new Cesium.Cartesian2(0, 0),
+            disableDepthTestDistance: Number.POSITIVE_INFINITY,
+          },
+          _retrofitBuilding: b,
+        });
+        _retrofitMarkers.push(ent);
+      });
+    }
+
     function loadRetrofitPriority() {
       const sigungu = document.getElementById('ap-rt-sigungu').value;
       const vintage = document.getElementById('ap-rt-vintage').value;
@@ -2242,6 +2429,7 @@
 
       document.getElementById('ap-retrofit-loading').style.display = '';
       document.getElementById('ap-retrofit-table').style.display = 'none';
+      clearRetrofitMarkers();
 
       fetch(url)
         .then(r => r.json())
@@ -2252,6 +2440,7 @@
           tbody.innerHTML = '';
           data.buildings.forEach(b => {
             const tr = document.createElement('tr');
+            tr.style.cursor = 'pointer';
             tr.innerHTML = `
               <td>${b.rank}</td>
               <td>
@@ -2265,13 +2454,15 @@
               if (b.lng && b.lat && ws3d?.viewer) {
                 ws3d.viewer.camera.flyTo({
                   destination: Cesium.Cartesian3.fromDegrees(b.lng, b.lat, 500),
-                  orientation: { heading: 0, pitch: Cesium.Math.toRadians(-60), roll: 0 },
-                  duration: 1.5,
+                  orientation: { heading: 0, pitch: Cesium.Math.toRadians(-55), roll: 0 },
+                  duration: 1.2,
                 });
               }
             };
             tbody.appendChild(tr);
           });
+          // 지도에 전체 핀 표시
+          showRetrofitMarkers(data.buildings);
         })
         .catch(() => {
           document.getElementById('ap-retrofit-loading').textContent = '로드 실패';
