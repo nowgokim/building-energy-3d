@@ -554,3 +554,62 @@ def predict_batch_task(self, limit: int | None = None) -> dict[str, Any]:
 
     logger.info("predict_batch_task 완료: %s", result)
     return result
+
+
+# ---------------------------------------------------------------------------
+# 6. energy_predictions → energy_results 동기화
+# ---------------------------------------------------------------------------
+
+_SYNC_INSERT = text(
+    """
+    INSERT INTO energy_results (pnu, total_energy, data_tier, simulation_type, is_current)
+    SELECT
+        ep.pnu,
+        ROUND(AVG(ep.predicted_eui)::numeric, 1) AS total_energy,
+        3                                         AS data_tier,
+        'xgboost_tier_b'                          AS simulation_type,
+        TRUE                                      AS is_current
+    FROM energy_predictions ep
+    WHERE ep.model_version_id = :model_version_id
+      AND NOT EXISTS (
+          SELECT 1 FROM energy_results er
+          WHERE er.pnu = ep.pnu AND er.is_current = TRUE
+      )
+    GROUP BY ep.pnu
+    ON CONFLICT DO NOTHING
+    """
+)
+
+
+def sync_predictions_to_energy_results(
+    engine: Engine,
+    model_version_id: int,
+) -> int:
+    """energy_predictions → energy_results 동기화.
+
+    energy_results(is_current=TRUE)가 없는 건물에 한해
+    XGBoost 예측값(data_tier=3, simulation_type='xgboost_tier_b')을 삽입한다.
+
+    이미 Tier1/2/4 데이터가 있는 건물은 건드리지 않는다.
+
+    Parameters
+    ----------
+    engine:
+        SQLAlchemy Engine.
+    model_version_id:
+        사용된 model_versions.id.
+
+    Returns
+    -------
+    int
+        삽입된 행 수.
+    """
+    with engine.begin() as conn:
+        result = conn.execute(_SYNC_INSERT, {"model_version_id": model_version_id})
+        inserted = result.rowcount
+    logger.info(
+        "sync_predictions_to_energy_results: %d건 삽입 (model_version_id=%d)",
+        inserted,
+        model_version_id,
+    )
+    return inserted

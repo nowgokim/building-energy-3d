@@ -61,3 +61,7 @@ gpt.txt
 scratch/osm/
 *.osm
 *.osm.pbf
+
+# ML model artifacts (대용량 pickle — 재학습으로 복원 가능)
+models/*.pkl
+models/**/*.pkl
