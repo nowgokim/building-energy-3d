@@ -618,7 +618,7 @@
     </div>
     <div class="hourly-bar"></div>
     <div class="hourly-scale">
-      <span>낮음</span><span>보통</span><span>높음</span>
+      <span>효율 (≤100)</span><span>250</span><span>낭비 (≥400)</span>
     </div>
     <div style="font-size:10px;color:#555;margin-top:5px">상대 부하 = EUI × 시간별 점유율</div>
     <div id="hourly-legend-status" style="margin-top:6px;color:#888;font-size:10px;"></div>
@@ -1266,18 +1266,17 @@
       }
       hourlyPointCollection = viewer.scene.primitives.add(new Cesium.PointPrimitiveCollection());
 
-      // 최대 부하 = eui_daily × max_profile_value 로 정규화
-      let maxLoad = 0;
-      const loads = (hourlyData.features || []).map(f => {
+      // 고정 절대 스케일: 연간 100~400 kWh/m²/yr → 시간당 환산 후 정규화
+      // 근거: 에너지절약설계기준 신축 기준선 150 kWh/m²/yr, ZEB5 비주거 130 kWh/m²/yr,
+      //       서울 평균 168 kWh/m²/yr, 노후건물 300~500+ kWh/m²/yr
+      // eui_daily = total_energy / 365, profile[hour]은 피크 대비 비율(0~1)
+      const LOAD_MIN = (100 / 365) * 0.3;  // 효율 건물(ZEB4~5 수준) 비사용 시간대
+      const LOAD_MAX = (400 / 365) * 1.0;  // 노후 건물 피크 부하
+
+      (hourlyData.features || []).forEach((f) => {
         const profile = getHourlyProfile(f.usage_type);
         const load = f.eui_daily * profile[hour];
-        if (load > maxLoad) maxLoad = load;
-        return load;
-      });
-      if (maxLoad === 0) maxLoad = 1;
-
-      (hourlyData.features || []).forEach((f, i) => {
-        const relLoad = loads[i] / maxLoad;
+        const relLoad = Math.max(0, Math.min(1, (load - LOAD_MIN) / (LOAD_MAX - LOAD_MIN)));
         hourlyPointCollection.add({
           position: Cesium.Cartesian3.fromDegrees(f.lng, f.lat, 5),
           color: hourlyLoadColor(relLoad),
