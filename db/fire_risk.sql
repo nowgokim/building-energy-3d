@@ -7,6 +7,7 @@ DROP MATERIALIZED VIEW IF EXISTS building_fire_risk;
 CREATE MATERIALIZED VIEW building_fire_risk AS
 WITH scored AS (
     SELECT
+        gid,
         pnu,
         -- 구조 위험도 (40점): 목조 최고위험, RC/SRC 최저
         CASE
@@ -51,6 +52,7 @@ WITH scored AS (
     WHERE pnu IS NOT NULL
 )
 SELECT
+    gid,
     pnu,
     structure_score,
     age_score,
@@ -64,6 +66,9 @@ SELECT
     END AS risk_grade
 FROM scored;
 
-CREATE INDEX ON building_fire_risk(pnu);
-CREATE INDEX ON building_fire_risk(risk_grade);
+-- UNIQUE INDEX on gid: REFRESH MATERIALIZED VIEW CONCURRENTLY 요건
+-- (pnu는 동일 단지 내 복수 동이 공유 가능 → gid 사용)
+CREATE UNIQUE INDEX IF NOT EXISTS idx_fire_risk_gid_uniq ON building_fire_risk(gid);
+CREATE INDEX IF NOT EXISTS idx_fire_risk_pnu   ON building_fire_risk(pnu);
+CREATE INDEX IF NOT EXISTS idx_fire_risk_grade ON building_fire_risk(risk_grade);
 ANALYZE building_fire_risk;

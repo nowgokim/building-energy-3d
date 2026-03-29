@@ -116,9 +116,11 @@ WHERE f.geom IS NOT NULL
   AND ST_IsValid(f.geom);
 
 -- 인덱스
-CREATE INDEX IF NOT EXISTS idx_enriched_gid ON buildings_enriched(gid);
-CREATE INDEX IF NOT EXISTS idx_enriched_geom ON buildings_enriched USING GIST(geom);
-CREATE INDEX IF NOT EXISTS idx_enriched_pnu ON buildings_enriched(pnu);
-CREATE INDEX IF NOT EXISTS idx_enriched_usage ON buildings_enriched(usage_type);
-CREATE INDEX IF NOT EXISTS idx_enriched_grade ON buildings_enriched(energy_grade);
+-- UNIQUE INDEX on gid: REFRESH MATERIALIZED VIEW CONCURRENTLY 요건
+CREATE UNIQUE INDEX IF NOT EXISTS idx_enriched_gid_uniq ON buildings_enriched(gid);
+CREATE INDEX IF NOT EXISTS idx_enriched_gid     ON buildings_enriched(gid);
+CREATE INDEX IF NOT EXISTS idx_enriched_geom    ON buildings_enriched USING GIST(geom);
+CREATE INDEX IF NOT EXISTS idx_enriched_pnu     ON buildings_enriched(pnu);
+CREATE INDEX IF NOT EXISTS idx_enriched_usage   ON buildings_enriched(usage_type);
+CREATE INDEX IF NOT EXISTS idx_enriched_grade   ON buildings_enriched(energy_grade);
 CREATE INDEX IF NOT EXISTS idx_enriched_vintage ON buildings_enriched(vintage_class);

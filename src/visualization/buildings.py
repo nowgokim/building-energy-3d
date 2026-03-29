@@ -18,6 +18,11 @@ from src.shared.database import get_db_dependency
 from src.shared.constants import SIGUNGU_NAMES as _SIGUNGU_NAMES, ZEB_THRESHOLD as _ZEB_THRESHOLD
 from src.simulation.retrofit import ALL_MEASURE_IDS, simulate_retrofit
 from src.simulation.archetypes import match_archetype as _match_archetype
+from src.shared.cache import cache_get as _cache_get, cache_set as _cache_set
+
+_TTL_STATS   = 300   # 5분 — 집계 통계 (MV 기반, 24h 1회 갱신)
+_TTL_DETAIL  = 3600  # 1시간 — 건물 상세
+_TTL_RETRO   = 3600  # 1시간 — retrofit 시뮬 (파라미터 고정)
 
 logger = logging.getLogger(__name__)
 
@@ -321,6 +326,11 @@ def list_buildings(
 @router.get("/district-stats")
 def get_district_stats(db: Session = Depends(get_db_dependency)) -> dict:
     """행정구역(시군구)별 에너지 통계. SSOT: energy_results(is_current=TRUE)."""
+    _key = "bldg:district_stats"
+    cached = _cache_get(_key)
+    if cached is not None:
+        return cached
+
     sql = text("""
         SELECT
             LEFT(b.pnu, 5)                         AS sigungu_cd,
@@ -355,7 +365,9 @@ def get_district_stats(db: Session = Depends(get_db_dependency)) -> dict:
             "center_lng":     float(r.center_lng) if r.center_lng else None,
             "center_lat":     float(r.center_lat) if r.center_lat else None,
         })
-    return {"zeb_threshold": _ZEB_THRESHOLD, "districts": districts}
+    result = {"zeb_threshold": _ZEB_THRESHOLD, "districts": districts}
+    _cache_set(_key, result, _TTL_STATS)
+    return result
 
 
 @router.get("/compare")
@@ -368,6 +380,11 @@ def compare_buildings(
     for pnu in (pnu1, pnu2):
         if not re.match(r"^\d{19,25}$", pnu):
             raise HTTPException(status_code=400, detail=f"Invalid PNU: {pnu}")
+
+    _key = f"bldg:compare:{min(pnu1, pnu2)}:{max(pnu1, pnu2)}"
+    cached = _cache_get(_key)
+    if cached is not None:
+        return cached
 
     sql = text("""
         SELECT
@@ -419,7 +436,7 @@ def compare_buildings(
         v1, v2 = b1.get(key), b2.get(key)
         return round(v2 - v1, 1) if v1 is not None and v2 is not None else None
 
-    return {
+    result = {
         "building1": b1, "building2": b2,
         "diff": {
             "eui_kwh_m2": _diff("eui_kwh_m2"), "co2_kg_m2": _diff("co2_kg_m2"),
@@ -427,6 +444,8 @@ def compare_buildings(
         },
         "zeb_threshold": _ZEB_THRESHOLD,
     }
+    _cache_set(_key, result, _TTL_STATS)
+    return result
 
 
 @router.get("/retrofit-priority")
@@ -439,6 +458,11 @@ def get_retrofit_priority(
     db: Session = Depends(get_db_dependency),
 ) -> dict:
     """그린리모델링 우선순위. 기준: EUI × 면적 (총 에너지 소비량 kWh/yr). SSOT: energy_results."""
+    _key = f"bldg:retrofit_priority:{sigungu_cd}:{vintage}:{usage_type}:{min_eui}:{limit}"
+    cached = _cache_get(_key)
+    if cached is not None:
+        return cached
+
     conditions = [
         "er.total_energy > :min_eui",
         "b.total_area IS NOT NULL AND b.total_area > 0",
@@ -477,7 +501,7 @@ def get_retrofit_priority(
         LIMIT :limit
     """)
     rows = db.execute(sql, params).fetchall()
-    return {
+    result = {
         "zeb_threshold": min_eui,
         "total_returned": len(rows),
         "buildings": [
@@ -496,6 +520,8 @@ def get_retrofit_priority(
             for i, r in enumerate(rows, 1)
         ],
     }
+    _cache_set(_key, result, _TTL_STATS)
+    return result
 
 
 @router.get("/{pnu}")
@@ -506,6 +532,11 @@ def get_building_detail(
     """Retrieve a single building with full attributes and energy results."""
     if not re.match(r"^\d{19,25}$", pnu):
         raise HTTPException(status_code=400, detail="Invalid PNU format")
+
+    _key = f"bldg:detail:{pnu}"
+    cached = _cache_get(_key)
+    if cached is not None:
+        return cached
 
     sql = text("""
         SELECT
@@ -605,6 +636,7 @@ def get_building_detail(
     except Exception:
         pass
 
+    _cache_set(_key, result, _TTL_DETAIL)
     return result
 
 
@@ -633,6 +665,12 @@ def get_retrofit_simulation(
     """
     if not re.match(r"^\d{19,25}$", pnu):
         raise HTTPException(status_code=400, detail="Invalid PNU format")
+
+    _measures_key = measures or "all"
+    _key = f"bldg:retrofit:{pnu}:{_measures_key}"
+    cached = _cache_get(_key)
+    if cached is not None:
+        return cached
 
     sql = text("""
         SELECT
@@ -671,7 +709,7 @@ def get_retrofit_simulation(
         selected_measures=selected,
     )
 
-    return {
+    response = {
         "pnu": result.pnu,
         "building": {
             "eui_kwh_m2": result.eui_before,
@@ -708,3 +746,5 @@ def get_retrofit_simulation(
             "payback_years": result.payback_years,
         },
     }
+    _cache_set(_key, response, _TTL_RETRO)
+    return response
