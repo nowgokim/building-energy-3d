@@ -6,13 +6,15 @@
 보정계수 적용 전 원시 시뮬레이션 값. 실사용 시 calibration_factors.py 참조.
 """
 
-from typing import TypedDict
+from typing import Optional, TypedDict
+
 
 class EUIStats(TypedDict):
     median: float
     p10: float
     p90: float
     n: int
+
 
 # (archetype, vintage, city) → EUIStats
 EUI_LOOKUP: dict[tuple[str, str, str], EUIStats] = {

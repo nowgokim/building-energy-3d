@@ -17,6 +17,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from src.shared.cache import cache_get as _cache_get, cache_set as _cache_set, get_redis as _get_redis
+from src.shared.constants import ZEB_THRESHOLD as _ZEB_THRESHOLD
 from src.shared.database import get_db_dependency
 from src.shared.limiter import limiter
 
@@ -260,6 +261,25 @@ def filter_buildings(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# overlay 공통 헬퍼
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _run_overlay_query(
+    db: Session,
+    sql: text,
+    west: float,
+    south: float,
+    east: float,
+    north: float,
+) -> list:
+    """bbox 파라미터로 overlay SQL 실행 후 결과 행 목록 반환."""
+    return db.execute(
+        sql,
+        {"west": west, "south": south, "east": east, "north": north},
+    ).fetchall()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # GET /api/v1/overlay/co2  — 뷰포트 CO2 오버레이 (최대 5,000건)
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -296,7 +316,7 @@ def co2_overlay(
         ORDER BY RANDOM()
         LIMIT 5000
     """)
-    rows = db.execute(sql, {"west": west, "south": south, "east": east, "north": north}).fetchall()
+    rows = _run_overlay_query(db, sql, west, south, east, north)
     return {
         "count": len(rows),
         "features": [
@@ -331,7 +351,6 @@ def zeb_overlay(
     - zeb: true = EUI ≤ 150 (ZEB 달성), false = 초과
     - eui: total_energy kWh/m²/yr (SSOT: energy_results)
     """
-    ZEB_THRESHOLD = 150.0
     sql = text("""
         SELECT
             bc.pnu,
@@ -349,20 +368,20 @@ def zeb_overlay(
         ORDER BY RANDOM()
         LIMIT 5000
     """)
-    rows = db.execute(sql, {"west": west, "south": south, "east": east, "north": north}).fetchall()
-    zeb_count = sum(1 for r in rows if float(r.eui) <= ZEB_THRESHOLD)
+    rows = _run_overlay_query(db, sql, west, south, east, north)
+    zeb_count = sum(1 for r in rows if float(r.eui) <= _ZEB_THRESHOLD)
     return {
         "count": len(rows),
         "zeb_count": zeb_count,
         "non_zeb_count": len(rows) - zeb_count,
-        "zeb_threshold": ZEB_THRESHOLD,
+        "zeb_threshold": _ZEB_THRESHOLD,
         "features": [
             {
                 "pnu": r.pnu,
                 "lng": float(r.lng),
                 "lat": float(r.lat),
                 "eui": round(float(r.eui), 1),
-                "zeb": float(r.eui) <= ZEB_THRESHOLD,
+                "zeb": float(r.eui) <= _ZEB_THRESHOLD,
             }
             for r in rows
         ],
@@ -409,7 +428,7 @@ def hourly_overlay(
         ORDER BY RANDOM()
         LIMIT 5000
     """)
-    rows = db.execute(sql, {"west": west, "south": south, "east": east, "north": north}).fetchall()
+    rows = _run_overlay_query(db, sql, west, south, east, north)
     return {
         "count": len(rows),
         "features": [
