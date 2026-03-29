@@ -1127,7 +1127,7 @@
           });
         });
         document.getElementById('zeb-status').textContent =
-          `조회 ${data.count.toLocaleString()}건 · ZEB 달성 ${data.zeb_count.toLocaleString()}건 (${data.count > 0 ? Math.round(data.zeb_count / data.count * 100) : 0}%)`;
+          `표본 ${data.count.toLocaleString()}건 · ZEB 달성 ${data.zeb_count.toLocaleString()}건 (${data.count > 0 ? Math.round(data.zeb_count / data.count * 100) : 0}%) *뷰포트 표본`;
       } catch(e) {
         if (e.name !== 'AbortError')
           document.getElementById('zeb-status').textContent = '로드 실패: ' + e.message;
@@ -2588,9 +2588,17 @@
       const resultEl = document.getElementById('ap-compare-result');
       resultEl.innerHTML = '<div style="color:#aaa;text-align:center">로딩 중...</div>';
       fetch(`${API}/buildings/compare?pnu1=${comparePnus[0]}&pnu2=${comparePnus[1]}`)
-        .then(r => r.json())
+        .then(r => {
+          if (!r.ok) {
+            const msg = r.status === 404 ? '선택한 건물의 에너지 데이터가 없습니다'
+                      : r.status === 422 ? '비교 불가 (EUI 데이터 없음)'
+                      : `오류 ${r.status}`;
+            throw new Error(msg);
+          }
+          return r.json();
+        })
         .then(renderCompareResult)
-        .catch(() => { resultEl.innerHTML = '<div style="color:#ef4444">로드 실패</div>'; });
+        .catch(e => { resultEl.innerHTML = `<div style="color:#ef4444">${escapeHtml(e.message || '로드 실패')}</div>`; });
     }
 
     // 비교 결과에서 건물 클릭 → 지도 이동 + 핀 강조
