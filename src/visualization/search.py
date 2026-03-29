@@ -363,6 +363,60 @@ def zeb_overlay(
     }
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# GET /api/v1/overlay/hourly  — 시간대별 에너지 부하 오버레이 (최대 5,000건)
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get("/overlay/hourly")
+def hourly_overlay(
+    west:  float = Query(...),
+    south: float = Query(...),
+    east:  float = Query(...),
+    north: float = Query(...),
+    db: Session = Depends(get_db_dependency),
+) -> dict:
+    """뷰포트 내 건물별 일일 EUI + 용도 유형 반환.
+
+    클라이언트가 시간대별 점유율(hourly_profile)을 적용하여
+    0~23시 슬라이더 애니메이션을 구현한다.
+    - eui_daily: total_energy / 365 (kWh/m²/일)
+    - usage_type: 점유율 프로파일 선택용 (apartment/office/retail 등)
+    """
+    sql = text("""
+        SELECT
+            bc.pnu,
+            ST_X(bc.centroid) AS lng,
+            ST_Y(bc.centroid) AS lat,
+            er.total_energy / 365.0 AS eui_daily,
+            b.usage_type
+        FROM building_centroids bc
+        JOIN energy_results er ON er.pnu = bc.pnu AND er.is_current = TRUE
+        JOIN buildings_enriched b ON b.pnu = bc.pnu
+        WHERE er.total_energy IS NOT NULL
+          AND er.total_energy > 0
+          AND ST_Within(
+              bc.centroid,
+              ST_MakeEnvelope(:west, :south, :east, :north, 4326)
+          )
+        ORDER BY (hashtext(bc.pnu) & 65535)
+        LIMIT 5000
+    """)
+    rows = db.execute(sql, {"west": west, "south": south, "east": east, "north": north}).fetchall()
+    return {
+        "count": len(rows),
+        "features": [
+            {
+                "pnu": r.pnu,
+                "lng": float(r.lng),
+                "lat": float(r.lat),
+                "eui_daily": round(float(r.eui_daily), 3),
+                "usage_type": r.usage_type or "기타",
+            }
+            for r in rows
+        ],
+    }
+
+
 @router.get("/filter/export")
 def export_filtered_buildings(
     energy_grades: Optional[str] = Query(None, description="Comma-separated energy grades"),

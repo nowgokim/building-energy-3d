@@ -124,6 +124,35 @@
     #mode-btn    { top: 348px; }
     #spread-btn  { top: 384px; }
     #analysis-btn { top: 420px; }
+    #hourly-btn   { top: 456px; }
+
+    /* Phase 5: 시간대 애니메이션 타임라인 컨트롤 */
+    #hourly-timeline-ctrl {
+      position: absolute; bottom: 50px; left: 50%; transform: translateX(-50%);
+      z-index: 110; background: rgba(20,20,20,0.88); color: #fff; border-radius: 10px;
+      padding: 8px 14px; box-shadow: 0 2px 12px rgba(0,0,0,0.3);
+      display: none; align-items: center; gap: 10px; min-width: 400px;
+    }
+    #hourly-timeline-ctrl button {
+      background: none; border: 1px solid rgba(255,255,255,0.4); color: #fff;
+      border-radius: 4px; padding: 2px 8px; cursor: pointer; font-size: 12px;
+    }
+    #hourly-timeline-ctrl button:hover { background: rgba(255,255,255,0.15); }
+    #hourly-slider { flex: 1; accent-color: #6366f1; }
+    #hourly-time-label { font-size: 13px; font-weight: 600; white-space: nowrap; min-width: 70px; text-align: center; }
+    #hourly-status { font-size: 10px; color: #aaa; white-space: nowrap; }
+
+    /* Phase 5: 시간대 애니메이션 레전드 */
+    #hourly-legend {
+      display: none; position: absolute; bottom: 76px; right: 12px; z-index: 100;
+      background: rgba(255,255,255,0.93); border-radius: 8px; padding: 8px 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.12); font-size: 11px; min-width: 200px;
+    }
+    #hourly-legend .hourly-bar {
+      height: 8px; border-radius: 4px; margin: 4px 0 2px;
+      background: linear-gradient(to right, #6366f1, #f59e0b, #ef4444);
+    }
+    #hourly-legend .hourly-scale { display: flex; justify-content: space-between; font-size: 9px; color: #888; }
     /* 📊 분석 패널 */
     #analysis-panel {
       display: none; position: absolute; top: 12px; right: 12px; width: 320px;
@@ -303,6 +332,7 @@
   <button id="mode-btn"    class="map-btn" onclick="toggle2DMode()">🗺 2D 보기</button>
   <button id="spread-btn"   class="map-btn" onclick="toggleSpreadPanel()">💨 확산 시뮬</button>
   <button id="analysis-btn" class="map-btn" onclick="toggleAnalysisPanel()">📊 분석</button>
+  <button id="hourly-btn"   class="map-btn" onclick="toggleHourlyMode()">⏰ 시간대 애니메이션</button>
 
   <!-- Phase 5: 분석 패널 -->
   <div id="analysis-panel">
@@ -375,7 +405,7 @@
           </div>
           <div style="font-size:11px;font-weight:600;color:#555;margin-bottom:4px">전체 모델 정확도</div>
           <table class="ap-table" id="ap-models-table">
-            <thead><tr><th>모델</th><th>스케일</th><th>MAPE</th><th>RMSE</th><th>예측수</th></tr></thead>
+            <thead><tr><th>모델</th><th>스케일</th><th>R²</th><th>RMSE</th><th>예측수</th></tr></thead>
             <tbody id="ap-models-tbody"></tbody>
           </table>
           <div style="display:flex;gap:6px;margin-top:8px">
@@ -462,6 +492,16 @@
       🚶 대피 경로 표시
     </button>
     <div id="sp-status"></div>
+  </div>
+
+  <!-- Phase 5: 시간대 애니메이션 타임라인 컨트롤 -->
+  <div id="hourly-timeline-ctrl" style="display:none;align-items:center;gap:10px">
+    <span id="hourly-time-label">오전 0시</span>
+    <input type="range" id="hourly-slider" min="0" max="23" value="0" step="1"
+           oninput="onHourlySlider(this.value)" style="flex:1;accent-color:#6366f1"/>
+    <button onclick="hourlyPlayPause()" id="hourly-play-btn">▶</button>
+    <span id="hourly-status"></span>
+    <button onclick="toggleHourlyMode()" title="닫기">✕</button>
   </div>
 
   <!-- F2 타임라인 컨트롤 -->
@@ -567,6 +607,21 @@
     </div>
     <div style="font-size:10px;color:#555;margin-top:5px">단위: kgCO₂/m²·yr</div>
     <div id="co2-status" style="margin-top:6px;color:#888;font-size:10px;"></div>
+  </div>
+
+  <!-- Phase 5: 시간대 애니메이션 Legend -->
+  <div id="hourly-legend">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">
+      <span style="font-weight:600;color:#333">⏰ 시간대 에너지 부하</span>
+      <button onclick="toggleHourlyMode()" title="닫기"
+        style="background:none;border:none;cursor:pointer;font-size:14px;color:#888;padding:0;line-height:1">✕</button>
+    </div>
+    <div class="hourly-bar"></div>
+    <div class="hourly-scale">
+      <span>낮음</span><span>보통</span><span>높음</span>
+    </div>
+    <div style="font-size:10px;color:#555;margin-top:5px">상대 부하 = EUI × 시간별 점유율</div>
+    <div id="hourly-legend-status" style="margin-top:6px;color:#888;font-size:10px;"></div>
   </div>
 
   <!-- ZEB 전환 지도 Legend -->
@@ -1103,6 +1158,197 @@
         btn.style.color = '#333';
         legend.style.display = 'none';
         clearZebLayer();
+      }
+    }
+
+    // ── Phase 5: 시간대 애니메이션 ────────────────────────────────────────────────
+
+    // 용도별 시간대 점유율 프로파일 (0~23시, 합=24, 정규화 기준점=1.0)
+    const HOURLY_PROFILES = {
+      '아파트':     [0.60,0.50,0.45,0.45,0.45,0.55, 0.75,0.95,0.85,0.70,0.65,0.65, 0.65,0.65,0.65,0.65,0.75,0.95, 1.00,1.00,0.90,0.80,0.72,0.64],
+      '다가구주택':  [0.60,0.50,0.45,0.45,0.45,0.55, 0.75,0.95,0.85,0.70,0.65,0.65, 0.65,0.65,0.65,0.65,0.75,0.95, 1.00,1.00,0.90,0.80,0.72,0.64],
+      '단독주택':   [0.60,0.50,0.45,0.45,0.45,0.55, 0.75,0.95,0.85,0.70,0.65,0.65, 0.65,0.65,0.65,0.65,0.75,0.95, 1.00,1.00,0.90,0.80,0.72,0.64],
+      '업무시설':   [0.15,0.12,0.12,0.12,0.12,0.15, 0.30,0.65,0.95,1.00,1.00,0.95, 0.80,1.00,1.00,1.00,0.90,0.70, 0.40,0.28,0.20,0.18,0.16,0.15],
+      '근린생활시설': [0.10,0.10,0.10,0.10,0.10,0.12, 0.20,0.35,0.65,0.90,1.00,1.00, 0.90,0.90,0.90,0.90,1.00,1.00, 0.90,0.70,0.45,0.25,0.15,0.12],
+      '판매시설':   [0.10,0.10,0.10,0.10,0.10,0.12, 0.20,0.35,0.65,0.90,1.00,1.00, 0.90,0.90,0.90,0.90,1.00,1.00, 0.90,0.70,0.45,0.25,0.15,0.12],
+      '의료시설':   [0.72,0.70,0.70,0.70,0.70,0.72, 0.78,0.88,1.00,1.00,1.00,0.95, 0.90,0.92,0.95,0.95,0.92,0.88, 0.85,0.82,0.80,0.78,0.75,0.73],
+      '교육연구시설': [0.20,0.18,0.18,0.18,0.18,0.20, 0.28,0.52,0.85,1.00,1.00,0.95, 0.75,0.95,0.95,0.88,0.65,0.42, 0.30,0.22,0.20,0.20,0.20,0.20],
+      '숙박시설':   [0.80,0.78,0.75,0.75,0.75,0.78, 0.85,0.90,0.92,0.88,0.82,0.80, 0.78,0.78,0.80,0.85,0.90,0.95, 1.00,1.00,0.98,0.95,0.90,0.84],
+      '공장':      [0.30,0.28,0.28,0.28,0.30,0.40, 0.60,0.88,1.00,1.00,1.00,0.95, 0.80,0.95,1.00,0.98,0.85,0.65, 0.42,0.35,0.32,0.30,0.30,0.30],
+      '창고시설':   [0.30,0.28,0.28,0.28,0.30,0.40, 0.60,0.88,1.00,1.00,1.00,0.95, 0.80,0.95,1.00,0.98,0.85,0.65, 0.42,0.35,0.32,0.30,0.30,0.30],
+      'default':    [0.40,0.38,0.36,0.36,0.36,0.40, 0.52,0.70,0.85,0.90,0.90,0.88, 0.85,0.88,0.88,0.88,0.88,0.88, 0.90,0.78,0.65,0.55,0.48,0.43],
+    };
+
+    function getHourlyProfile(usageType) {
+      return HOURLY_PROFILES[usageType] || HOURLY_PROFILES['default'];
+    }
+
+    function hourLabel(h) {
+      if (h === 0) return '오전 0시';
+      if (h < 12) return `오전 ${h}시`;
+      if (h === 12) return '오후 12시';
+      return `오후 ${h - 12}시`;
+    }
+
+    // 상대 부하 → 점 색상 (낮음=파랑 → 중간=주황 → 높음=빨강)
+    function hourlyLoadColor(relLoad) {
+      const t = Math.max(0, Math.min(1, relLoad));
+      if (t < 0.5) {
+        // 파랑(0.39,0.40,0.95) → 주황(0.95,0.62,0.07)
+        const s = t * 2;
+        const r = 0.39 + s * (0.95 - 0.39);
+        const g = 0.40 + s * (0.62 - 0.40);
+        const b = 0.95 + s * (0.07 - 0.95);
+        return new Cesium.Color(r, g, b, 0.85);
+      } else {
+        // 주황 → 빨강(0.94,0.13,0.13)
+        const s = (t - 0.5) * 2;
+        const r = 0.95 + s * (0.94 - 0.95);
+        const g = 0.62 + s * (0.13 - 0.62);
+        const b = 0.07 + s * (0.13 - 0.07);
+        return new Cesium.Color(r, g, b, 0.85);
+      }
+    }
+
+    let hourlyMode = false;
+    let hourlyData = null;          // 마지막 fetch 결과 캐시
+    let hourlyPointCollection = null;
+    let hourlyCurrentHour = 8;      // 초기값: 오전 8시
+    let hourlyPlayTimer = null;
+    let hourlyAbortCtrl = null;
+    let hourlyMoveEndRemover = null;
+
+    async function loadHourlyLayer() {
+      if (!ws3d?.viewer) return;
+      const viewer = ws3d.viewer;
+      if (hourlyAbortCtrl) hourlyAbortCtrl.abort();
+      hourlyAbortCtrl = new AbortController();
+
+      const camHeight = viewer.camera.positionCartographic.height;
+      if (camHeight > VWORLD_CONFIG.CO2_ZOOM_THRESHOLD) {
+        document.getElementById('hourly-legend-status').textContent = '더 가까이 확대하면 표시합니다';
+        if (hourlyMoveEndRemover) { hourlyMoveEndRemover(); hourlyMoveEndRemover = null; }
+        hourlyMoveEndRemover = viewer.camera.moveEnd.addEventListener(() => {
+          hourlyMoveEndRemover = null;
+          if (hourlyMode) loadHourlyLayer();
+        });
+        return;
+      }
+
+      const rect = viewer.camera.computeViewRectangle();
+      if (!rect) return;
+      const west  = Cesium.Math.toDegrees(rect.west);
+      const south = Cesium.Math.toDegrees(rect.south);
+      const east  = Cesium.Math.toDegrees(rect.east);
+      const north = Cesium.Math.toDegrees(rect.north);
+      document.getElementById('hourly-legend-status').textContent = '로딩 중...';
+      try {
+        const resp = await fetch(
+          `${API}/overlay/hourly?west=${west}&south=${south}&east=${east}&north=${north}`,
+          { signal: hourlyAbortCtrl.signal }
+        );
+        hourlyData = await resp.json();
+        renderHourlyLayer(hourlyCurrentHour);
+        document.getElementById('hourly-legend-status').textContent =
+          `${(hourlyData.count || 0).toLocaleString()}건 로드됨`;
+      } catch(e) {
+        if (e.name !== 'AbortError')
+          document.getElementById('hourly-legend-status').textContent = '로드 실패: ' + e.message;
+      }
+    }
+
+    function renderHourlyLayer(hour) {
+      if (!ws3d?.viewer || !hourlyData) return;
+      const viewer = ws3d.viewer;
+      if (hourlyPointCollection) {
+        viewer.scene.primitives.remove(hourlyPointCollection);
+        hourlyPointCollection = null;
+      }
+      hourlyPointCollection = viewer.scene.primitives.add(new Cesium.PointPrimitiveCollection());
+
+      // 최대 부하 = eui_daily × max_profile_value 로 정규화
+      let maxLoad = 0;
+      const loads = (hourlyData.features || []).map(f => {
+        const profile = getHourlyProfile(f.usage_type);
+        const load = f.eui_daily * profile[hour];
+        if (load > maxLoad) maxLoad = load;
+        return load;
+      });
+      if (maxLoad === 0) maxLoad = 1;
+
+      (hourlyData.features || []).forEach((f, i) => {
+        const relLoad = loads[i] / maxLoad;
+        hourlyPointCollection.add({
+          position: Cesium.Cartesian3.fromDegrees(f.lng, f.lat, 5),
+          color: hourlyLoadColor(relLoad),
+          pixelSize: 6 + relLoad * 4,   // 6~10px
+          outlineColor: Cesium.Color.WHITE.withAlpha(0.3),
+          outlineWidth: 1,
+          disableDepthTestDistance: Number.POSITIVE_INFINITY,
+        });
+      });
+
+      // 슬라이더 + 레이블 동기화
+      document.getElementById('hourly-slider').value = hour;
+      document.getElementById('hourly-time-label').textContent = hourLabel(hour);
+
+      // 통계 표시
+      const avgLoad = loads.reduce((a, b) => a + b, 0) / Math.max(loads.length, 1);
+      document.getElementById('hourly-status').textContent =
+        `평균 ${avgLoad.toFixed(2)} kWh/m²·일`;
+    }
+
+    function onHourlySlider(val) {
+      hourlyCurrentHour = parseInt(val, 10);
+      renderHourlyLayer(hourlyCurrentHour);
+    }
+
+    function hourlyPlayPause() {
+      const btn = document.getElementById('hourly-play-btn');
+      if (hourlyPlayTimer) {
+        clearInterval(hourlyPlayTimer);
+        hourlyPlayTimer = null;
+        btn.textContent = '▶';
+      } else {
+        btn.textContent = '⏸';
+        hourlyPlayTimer = setInterval(() => {
+          hourlyCurrentHour = (hourlyCurrentHour + 1) % 24;
+          renderHourlyLayer(hourlyCurrentHour);
+        }, 800);
+      }
+    }
+
+    function clearHourlyLayer() {
+      if (hourlyPointCollection) {
+        ws3d.viewer.scene.primitives.remove(hourlyPointCollection);
+        hourlyPointCollection = null;
+      }
+      if (hourlyPlayTimer) { clearInterval(hourlyPlayTimer); hourlyPlayTimer = null; }
+      document.getElementById('hourly-play-btn').textContent = '▶';
+      document.getElementById('hourly-legend-status').textContent = '';
+      document.getElementById('hourly-status').textContent = '';
+    }
+
+    function toggleHourlyMode() {
+      hourlyMode = !hourlyMode;
+      const btn    = document.getElementById('hourly-btn');
+      const legend = document.getElementById('hourly-legend');
+      const ctrl   = document.getElementById('hourly-timeline-ctrl');
+      if (hourlyMode) {
+        btn.textContent = '⏰ 시간대 애니메이션 ON';
+        btn.style.background = '#6366f1';
+        btn.style.color = '#fff';
+        legend.style.display = 'block';
+        ctrl.style.display = 'flex';
+        loadHourlyLayer();
+        ws3d.viewer.camera.moveEnd.addEventListener(() => { if (hourlyMode) loadHourlyLayer(); });
+      } else {
+        btn.textContent = '⏰ 시간대 애니메이션';
+        btn.style.background = 'rgba(255,255,255,0.92)';
+        btn.style.color = '#333';
+        legend.style.display = 'none';
+        ctrl.style.display = 'none';
+        clearHourlyLayer();
       }
     }
 
@@ -2500,10 +2746,12 @@
       ]).then(([prod, accuracy]) => {
         const prodEl = document.getElementById('ap-prod-info');
         if (prod) {
+          // val_mape는 검증셋 기준 (훈련 시 정상). DB accuracy의 mape는 outlier(EUI≈0) 영향으로 왜곡.
+          const r2Color = (prod.val_r2 || 0) >= 0.5 ? '#16a34a' : '#f59e0b';
           prodEl.innerHTML =
             `버전: <b>${escapeHtml(prod.version_tag)}</b> · ` +
-            `MAPE: <b style="color:${(prod.val_mape||99) < 15 ? '#16a34a' : '#f59e0b'}">${prod.val_mape != null ? prod.val_mape.toFixed(1) + '%' : '-'}</b> · ` +
-            `RMSE: ${prod.val_rmse != null ? prod.val_rmse.toFixed(1) : '-'} kWh/m² · ` +
+            `RMSE: <b>${prod.val_rmse != null ? prod.val_rmse.toFixed(1) : '-'} kWh/m²</b> · ` +
+            `Val MAPE: <b style="color:${(prod.val_mape||99) < 20 ? '#16a34a' : '#f59e0b'}">${prod.val_mape != null ? prod.val_mape.toFixed(1) + '%' : '-'}</b> · ` +
             `학습: ${prod.train_rows != null ? prod.train_rows.toLocaleString() : '-'}건`;
         } else {
           prodEl.innerHTML = '<span style="color:#f59e0b">프로덕션 모델 없음 — 재학습 필요</span>';
@@ -2513,15 +2761,16 @@
         tbody.innerHTML = '';
         const models = accuracy.models || [];
         models.forEach(m => {
-          const mape = m.mape != null ? m.mape.toFixed(1) + '%' : '-';
+          // R² 사용 (outlier 영향 덜 받음). MAPE는 outlier EUI≈0 건물로 인해 왜곡될 수 있음.
+          const r2 = m.r_squared != null ? m.r_squared.toFixed(3) : '-';
           const rmse = m.rmse != null ? m.rmse.toFixed(1) : '-';
-          const color = m.mape != null ? (m.mape < 10 ? '#16a34a' : m.mape < 20 ? '#f59e0b' : '#ef4444') : '#888';
+          const r2Color = m.r_squared != null ? (m.r_squared >= 0.7 ? '#16a34a' : m.r_squared >= 0.4 ? '#f59e0b' : '#ef4444') : '#888';
           const icon = m.stage === 'production' ? '✅' : m.stage === 'staging' ? '🔵' : '⚪';
           const tr = document.createElement('tr');
           tr.innerHTML = `
             <td title="${escapeHtml(m.version_tag||'')}">${icon} ${escapeHtml((m.model_name||'').replace('xgb_eui_annual_global','XGBoost EUI').replace('ts_lag_xgb_','TS '))}</td>
             <td>${m.temporal_scale||'-'}</td>
-            <td style="color:${color};font-weight:600">${mape}</td>
+            <td style="color:${r2Color};font-weight:600">${r2}</td>
             <td>${rmse}</td>
             <td>${(m.evaluated_count||0).toLocaleString()}</td>
           `;
