@@ -557,7 +557,7 @@ class XGBoostConfig:
     reg_lambda: float = 1.0     # L2 정규화
     objective: str = "reg:squarederror"
     eval_metric: str = "rmse"
-    n_jobs: int = -1
+    n_jobs: int = 2  # -1은 28코어 컨테이너에서 thread 오버헤드로 역효과
     random_state: int = 42
     # 예측 구간 추정용 quantile 모델 추가 학습 여부
     fit_quantile_models: bool = True

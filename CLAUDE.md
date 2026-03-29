@@ -2,7 +2,7 @@
 
 ## 프로젝트 현재 상태
 
-**단계: Phase 3.5 완료 + Phase F0~F4 완료 + Tier C Monitor 완료 + Korean_BB EUI 전체 적용 + 배포 완료** — 2026-03-28 기준
+**단계: Phase 3.5 완료 + Phase F0~F4 완료 + Tier C Monitor 완료 + Korean_BB EUI 전체 적용 + 배포 완료 + Phase 4-E ML 인프라 완료** — 2026-03-29 기준
 
 **서비스 URL**: https://building-energy.xyz (Cloudflare Tunnel → Windows Docker, RTX 4090)
 
@@ -36,6 +36,10 @@
 | `src/visualization/monitor.py` | ✅ 100% | `/api/v1/monitor/*` 7개 엔드포인트 (Redis 캐시, CSV 업로드, WebSocket) |
 | `src/shared/monitor_models.py` | ✅ 100% | Pydantic 스키마 8개 |
 | `src/monitor/tasks.py` | ✅ 100% | Celery beat 1h 이상치 감지 (PostgreSQL window function, Redis pub/sub) |
+| `src/simulation/ml_retrain.py` | ✅ 100% | XGBoost 주간 재학습 Celery task. 프로덕션 모델 자동 승격 (val_mape 2% 개선 시) |
+| `src/simulation/ml_predict_batch.py` | ✅ 100% | 766K 건물 배치 예측 (5K 단위 페이지), Tier1 실측 정확도 평가, energy_predictions 적재 |
+| `src/simulation/ts_daily_retrain.py` | ✅ 100% | Tier C 건물 일단위 per-building 시계열 재학습 (180일 이상 데이터 보유 시) |
+| `src/visualization/models.py` | ✅ 100% | `/api/v1/models/*` 6개 엔드포인트 (정확도/목록/프로덕션/재학습 트리거) |
 | `frontend/monitor.html` + `src/monitor-main.tsx` | ✅ 100% | `/monitor` 별도 MPA 엔트리 (StrictMode 비활성화 — Leaflet 이중초기화 방지) |
 | `frontend/src/pages/MonitorPage.tsx` | ✅ 100% | 30초 polling, fetchId race guard, 헤더 이상치 카운트 |
 | `frontend/src/components/Monitor/` | ✅ 100% | BuildingListPanel, BuildingListItem, MultiLineChart, TimeseriesChartPanel, BuildingMiniMap, MonitorFilterBar, PeriodSelector, AnomalyBadge (16개 버그 수정 완료) |
@@ -74,7 +78,7 @@ docker compose exec db psql -U postgres -d buildings -f /docker-entrypoint-initd
 | **4-B** | ems_transformer E0 도시별 기준 EUI 추출 | ✅ 완료 (2026-03-29) |
 | **4-C** | 아키타입 83 → 115종 (지역난방·온돌·데이터센터·복합용도) | ✅ 완료 (2026-03-29) |
 | **4-D** | EnergyPlus on-demand retrofit (runner+task+API) | ✅ 완료 (2026-03-29) |
-| **4-E** | ML 예측 고도화 (일단위 XGBoost + 시간단위 LSTM) | ⏳ Tier C 12개월 후 (2027-03~) |
+| **4-E** | ML 예측 고도화 (일단위 XGBoost + 시간단위 LSTM) | ✅ 인프라 완료 (2026-03-29). Tier C 데이터 12개월 누적 후 ts_retrain 활성화 (2027-03~) |
 | **5** | 시간대 애니메이션 + 건물 비교 + ZEB 전환 지도 | ⏳ Phase 4 완료 후 |
 
 **화재 안전 관련 문서**: [PRD-FIRE-SAFETY.md](./docs/PRD-FIRE-SAFETY.md) · [RFC-FIRE-SAFETY.md](./docs/RFC-FIRE-SAFETY.md) · [FIRE-SAFETY-WORKPLAN.md](./docs/FIRE-SAFETY-WORKPLAN.md)

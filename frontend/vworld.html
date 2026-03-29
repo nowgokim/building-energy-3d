@@ -314,6 +314,7 @@
       <div class="ap-tab active" id="ap-tab-district" onclick="switchApTab('district')">구별 통계</div>
       <div class="ap-tab" id="ap-tab-compare"  onclick="switchApTab('compare')">건물 비교</div>
       <div class="ap-tab" id="ap-tab-retrofit" onclick="switchApTab('retrofit')">그린리모델링</div>
+      <div class="ap-tab" id="ap-tab-models"   onclick="switchApTab('models')">모델 현황</div>
     </div>
     <div class="ap-body">
       <!-- 구별 통계 탭 -->
@@ -363,6 +364,25 @@
           <thead><tr><th>#</th><th>건물</th><th>EUI</th><th>총소비(MWh/yr)</th></tr></thead>
           <tbody id="ap-retrofit-tbody"></tbody>
         </table>
+      </div>
+      <!-- 모델 현황 탭 -->
+      <div id="ap-body-models" style="display:none">
+        <div id="ap-models-loading" style="color:#aaa;text-align:center;padding:16px">로딩 중...</div>
+        <div id="ap-models-content" style="display:none">
+          <div id="ap-production-card" style="background:#f0f9ff;border-radius:6px;padding:8px 10px;margin-bottom:8px">
+            <div style="font-size:11px;font-weight:700;color:#1d4ed8;margin-bottom:4px">🤖 현재 프로덕션 모델</div>
+            <div id="ap-prod-info" style="font-size:11px;color:#334155"></div>
+          </div>
+          <div style="font-size:11px;font-weight:600;color:#555;margin-bottom:4px">전체 모델 정확도</div>
+          <table class="ap-table" id="ap-models-table">
+            <thead><tr><th>모델</th><th>스케일</th><th>MAPE</th><th>RMSE</th><th>예측수</th></tr></thead>
+            <tbody id="ap-models-tbody"></tbody>
+          </table>
+          <div style="display:flex;gap:6px;margin-top:8px">
+            <button id="ap-retrain-btn" onclick="triggerRetrain()" style="flex:1;padding:5px;background:#7c3aed;color:#fff;border:none;border-radius:5px;cursor:pointer;font-size:10px">🔄 재학습 요청</button>
+            <button onclick="loadModelsTab()" style="padding:5px 8px;background:#f1f5f9;color:#555;border:1px solid #ddd;border-radius:5px;cursor:pointer;font-size:10px">↻ 새로고침</button>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -2203,10 +2223,9 @@
     // ─────────────────────────────────────────────────────────────────────────
 
     function switchApTab(tab) {
-      // 다른 탭으로 이동 시 그린리모델링 마커 제거
       if (apCurrentTab === 'retrofit' && tab !== 'retrofit') clearRetrofitMarkers();
       apCurrentTab = tab;
-      ['district','compare','retrofit'].forEach(t => {
+      ['district','compare','retrofit','models'].forEach(t => {
         document.getElementById('ap-tab-' + t).classList.toggle('active', t === tab);
         document.getElementById('ap-body-' + t).style.display = t === tab ? '' : 'none';
       });
@@ -2214,6 +2233,7 @@
       if (tab === 'retrofit' && document.getElementById('ap-rt-sigungu').options.length === 1) {
         loadDistrictStatsForFilter();
       }
+      if (tab === 'models') loadModelsTab();
     }
 
     function loadDistrictStats() {
@@ -2468,6 +2488,65 @@
           document.getElementById('ap-retrofit-loading').textContent = '로드 실패';
         });
     }
+
+    // ── 모델 현황 탭 ─────────────────────────────────────────────────────────
+    function loadModelsTab() {
+      document.getElementById('ap-models-loading').style.display = '';
+      document.getElementById('ap-models-content').style.display = 'none';
+
+      Promise.all([
+        fetch(API + '/models/production').then(r => r.ok ? r.json() : null).catch(() => null),
+        fetch(API + '/models/accuracy').then(r => r.json()).catch(() => ({models: []})),
+      ]).then(([prod, accuracy]) => {
+        const prodEl = document.getElementById('ap-prod-info');
+        if (prod) {
+          prodEl.innerHTML =
+            `버전: <b>${escapeHtml(prod.version_tag)}</b> · ` +
+            `MAPE: <b style="color:${(prod.val_mape||99) < 15 ? '#16a34a' : '#f59e0b'}">${prod.val_mape != null ? prod.val_mape.toFixed(1) + '%' : '-'}</b> · ` +
+            `RMSE: ${prod.val_rmse != null ? prod.val_rmse.toFixed(1) : '-'} kWh/m² · ` +
+            `학습: ${prod.train_rows != null ? prod.train_rows.toLocaleString() : '-'}건`;
+        } else {
+          prodEl.innerHTML = '<span style="color:#f59e0b">프로덕션 모델 없음 — 재학습 필요</span>';
+        }
+
+        const tbody = document.getElementById('ap-models-tbody');
+        tbody.innerHTML = '';
+        const models = accuracy.models || [];
+        models.forEach(m => {
+          const mape = m.mape != null ? m.mape.toFixed(1) + '%' : '-';
+          const rmse = m.rmse != null ? m.rmse.toFixed(1) : '-';
+          const color = m.mape != null ? (m.mape < 10 ? '#16a34a' : m.mape < 20 ? '#f59e0b' : '#ef4444') : '#888';
+          const icon = m.stage === 'production' ? '✅' : m.stage === 'staging' ? '🔵' : '⚪';
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td title="${escapeHtml(m.version_tag||'')}">${icon} ${escapeHtml((m.model_name||'').replace('xgb_eui_annual_global','XGBoost EUI').replace('ts_lag_xgb_','TS '))}</td>
+            <td>${m.temporal_scale||'-'}</td>
+            <td style="color:${color};font-weight:600">${mape}</td>
+            <td>${rmse}</td>
+            <td>${(m.evaluated_count||0).toLocaleString()}</td>
+          `;
+          tbody.appendChild(tr);
+        });
+        if (models.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="5" style="color:#aaa;text-align:center;padding:12px">예측 기록 없음</td></tr>';
+        }
+        document.getElementById('ap-models-loading').style.display = 'none';
+        document.getElementById('ap-models-content').style.display = '';
+      });
+    }
+
+    function triggerRetrain() {
+      const btn = document.getElementById('ap-retrain-btn');
+      btn.disabled = true; btn.textContent = '요청 중...';
+      fetch(API + '/models/retrain', {method: 'POST'})
+        .then(r => r.json())
+        .then(d => {
+          btn.textContent = `✓ 큐 등록 (${(d.task_id||'').slice(0,8)}...)`;
+          btn.style.background = '#16a34a';
+        })
+        .catch(() => { btn.textContent = '실패'; btn.disabled = false; });
+    }
+    // ─────────────────────────────────────────────────────────────────────────
 
     // 모바일 배너에서 호출: 2D 전환 + 배너 닫기
     function enable2DForMobile() {
