@@ -260,7 +260,7 @@ def list_monitor_buildings(
         for r in rows
     ]
     result = {"count": len(items), "buildings": items}
-    _cache_set(cache_key, result, ttl=60)
+    _cache_set(cache_key, result, ttl=3600)  # 1시간 (모니터링 건물 목록은 자주 변하지 않음)
     return result
 
 
@@ -343,7 +343,7 @@ def get_monitor_building(
         "lat":         float(meta.lat) if meta.lat else None,
         "daily_30d":   daily_by_meter,
     }
-    _cache_set(cache_key, result, ttl=300)
+    _cache_set(cache_key, result, ttl=1800)  # 30분 (건물 상세 정보)
     return result
 
 
@@ -645,7 +645,7 @@ def get_anomalies(
         for r in rows
     ]
     result = {"count": len(items), "anomalies": items}
-    _cache_set(cache_key, result, ttl=60)
+    _cache_set(cache_key, result, ttl=600)  # 10분 (이상치는 상대적으로 자주 갱신)
     return result
 
 

@@ -11,7 +11,7 @@ import json
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, model_validator
 from sqlalchemy import text
@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 
 from src.shared.cache import get_redis as _get_redis
 from src.shared.database import get_db_dependency
+from src.shared.limiter import limiter
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +50,10 @@ class FilterRequest(BaseModel):
                 raise ValueError("bbox longitude must be between -180 and 180")
             if not (-90 <= s <= 90 and -90 <= n <= 90):
                 raise ValueError("bbox latitude must be between -90 and 90")
+            if w >= e:
+                raise ValueError("bbox west must be less than east")
+            if s >= n:
+                raise ValueError("bbox south must be less than north")
         return values
 
 
@@ -144,7 +149,7 @@ def _filtered_rows(db: Session, filters: FilterRequest) -> tuple[list, int]:
 # ---------------------------------------------------------------------------
 
 _FILTER_OPTIONS_KEY = "filter_options"
-_FILTER_OPTIONS_TTL = 3600  # 1시간
+_FILTER_OPTIONS_TTL = 86400  # 24시간 (용도/연대/등급 옵션은 거의 변하지 않음)
 
 @router.get("/filter/options")
 def get_filter_options(db: Session = Depends(get_db_dependency)) -> dict:
@@ -206,8 +211,8 @@ def search_buildings(
         LIMIT 10
     """)
 
-    # Escape LIKE special characters
-    safe_q = q.replace("%", r"\%").replace("_", r"\_")
+    # LIKE 특수문자 이스케이프 (백슬래시 → %% → ___ 순서 중요)
+    safe_q = q.replace("\\", "\\\\").replace("%", r"\%").replace("_", r"\_")
     pattern = f"%{safe_q}%"
     rows = db.execute(sql, {"pattern": pattern}).fetchall()
     logger.info("Search query='%s' returned %d results", q, len(rows))
@@ -262,7 +267,9 @@ def filter_buildings(
 # ─────────────────────────────────────────────────────────────────────────────
 
 @router.get("/overlay/co2")
+@limiter.limit("30/minute")
 def co2_overlay(
+    request: Request,
     west:  float = Query(...),
     south: float = Query(...),
     east:  float = Query(...),
@@ -289,7 +296,7 @@ def co2_overlay(
               bc.centroid,
               ST_MakeEnvelope(:west, :south, :east, :north, 4326)
           )
-        ORDER BY (hashtext(bc.pnu) & 65535)
+        ORDER BY RANDOM()
         LIMIT 5000
     """)
     rows = db.execute(sql, {"west": west, "south": south, "east": east, "north": north}).fetchall()
@@ -313,7 +320,9 @@ def co2_overlay(
 # ─────────────────────────────────────────────────────────────────────────────
 
 @router.get("/overlay/zeb")
+@limiter.limit("30/minute")
 def zeb_overlay(
+    request: Request,
     west:  float = Query(...),
     south: float = Query(...),
     east:  float = Query(...),
@@ -340,7 +349,7 @@ def zeb_overlay(
               bc.centroid,
               ST_MakeEnvelope(:west, :south, :east, :north, 4326)
           )
-        ORDER BY (hashtext(bc.pnu) & 65535)
+        ORDER BY RANDOM()
         LIMIT 5000
     """)
     rows = db.execute(sql, {"west": west, "south": south, "east": east, "north": north}).fetchall()
@@ -368,7 +377,9 @@ def zeb_overlay(
 # ─────────────────────────────────────────────────────────────────────────────
 
 @router.get("/overlay/hourly")
+@limiter.limit("30/minute")
 def hourly_overlay(
+    request: Request,
     west:  float = Query(...),
     south: float = Query(...),
     east:  float = Query(...),
@@ -398,7 +409,7 @@ def hourly_overlay(
               bc.centroid,
               ST_MakeEnvelope(:west, :south, :east, :north, 4326)
           )
-        ORDER BY (hashtext(bc.pnu) & 65535)
+        ORDER BY RANDOM()
         LIMIT 5000
     """)
     rows = db.execute(sql, {"west": west, "south": south, "east": east, "north": north}).fetchall()
@@ -418,7 +429,9 @@ def hourly_overlay(
 
 
 @router.get("/filter/export")
+@limiter.limit("10/minute")  # CSV 다운로드는 더 엄격하게 제한
 def export_filtered_buildings(
+    request: Request,
     energy_grades: Optional[str] = Query(None, description="Comma-separated energy grades"),
     vintage_classes: Optional[str] = Query(None, description="Comma-separated vintage classes"),
     usage_types: Optional[str] = Query(None, description="Comma-separated usage types"),

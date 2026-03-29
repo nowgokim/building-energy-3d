@@ -3,7 +3,13 @@ from sqlalchemy.orm import sessionmaker, Session
 from contextlib import contextmanager
 from .config import get_settings
 
-engine = create_engine(get_settings().DATABASE_URL, pool_pre_ping=True)
+engine = create_engine(
+    get_settings().DATABASE_URL,
+    pool_pre_ping=True,
+    pool_size=5,
+    max_overflow=10,
+    connect_args={"options": "-c statement_timeout=30000"},  # 30초 쿼리 타임아웃
+)
 SessionLocal = sessionmaker(bind=engine)
 
 

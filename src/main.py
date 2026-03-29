@@ -3,16 +3,20 @@ import json
 import logging
 import os
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
 from src.shared.config import get_settings
+from src.shared.limiter import limiter
 
-# Logging
+# Logging — 환경변수로 레벨 제어 (개발: DEBUG/INFO, 프로덕션: WARNING)
+_log_level = os.environ.get("LOG_LEVEL", "WARNING" if os.environ.get("ENVIRONMENT") == "production" else "INFO")
 logging.basicConfig(
-    level=logging.INFO,
+    level=getattr(logging, _log_level.upper(), logging.INFO),
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logger = logging.getLogger(__name__)
@@ -22,6 +26,8 @@ app = FastAPI(
     description="마포구 건물 에너지 시뮬레이션 3D 지도 플랫폼",
     version="0.1.0",
 )
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # CORS — 환경변수 기반
 # ALLOWED_ORIGINS 환경변수에 프로덕션 도메인을 명시한다.
@@ -40,12 +46,12 @@ if "*" in allowed_origins:
         "Set explicit origins in ALLOWED_ORIGINS environment variable."
     )
 
-app.add_middleware(GZipMiddleware, minimum_size=1000)
+app.add_middleware(GZipMiddleware, minimum_size=1000, compresslevel=6)  # 9→6: CPU 비용 절감
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["*"],
+    allow_headers=["Content-Type", "Authorization", "X-Requested-With"],
     # allow_credentials=True 는 allow_origins=["*"] 와 함께 사용 불가.
     # 명시적 origin 목록을 사용할 때만 credentials=True 설정 가능.
     allow_credentials="*" not in allowed_origins,

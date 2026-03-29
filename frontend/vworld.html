@@ -747,6 +747,7 @@
     const API = "/api/v1";
     let currentAbort = null;
     let _weatherWs = null;
+    let _weatherReconnectTimer = null;
 
     function initWeatherWebSocket() {
       const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -773,8 +774,9 @@
       };
 
       _weatherWs.onclose = () => {
-        // 5초 후 재연결
-        setTimeout(initWeatherWebSocket, 5000);
+        // 5초 후 재연결 (타이머 id 저장 — 페이지 언로드 시 정리 가능)
+        if (_weatherReconnectTimer) clearTimeout(_weatherReconnectTimer);
+        _weatherReconnectTimer = setTimeout(initWeatherWebSocket, 5000);
       };
     }
 
@@ -1150,13 +1152,15 @@
         btn.style.color = '#fff';
         legend.style.display = 'block';
         loadZebLayer();
-        // 카메라 이동 완료 시마다 재조회
-        ws3d.viewer.camera.moveEnd.addEventListener(() => { if (zebMode) loadZebLayer(); });
+        // 기존 리스너 제거 후 등록 (ON/OFF 반복 시 누적 방지)
+        if (zebMoveEndRemover) { zebMoveEndRemover(); zebMoveEndRemover = null; }
+        zebMoveEndRemover = ws3d.viewer.camera.moveEnd.addEventListener(() => { if (zebMode) loadZebLayer(); });
       } else {
         btn.textContent = '🟢 ZEB 전환 지도';
         btn.style.background = 'rgba(255,255,255,0.92)';
         btn.style.color = '#333';
         legend.style.display = 'none';
+        if (zebMoveEndRemover) { zebMoveEndRemover(); zebMoveEndRemover = null; }
         clearZebLayer();
       }
     }
@@ -1260,11 +1264,12 @@
     function renderHourlyLayer(hour) {
       if (!ws3d?.viewer || !hourlyData) return;
       const viewer = ws3d.viewer;
-      if (hourlyPointCollection) {
-        viewer.scene.primitives.remove(hourlyPointCollection);
-        hourlyPointCollection = null;
+      // 컬렉션 재사용: 매번 remove/add 대신 removeAll()로 GPU 메모리 단편화 방지
+      if (!hourlyPointCollection || hourlyPointCollection.isDestroyed()) {
+        hourlyPointCollection = viewer.scene.primitives.add(new Cesium.PointPrimitiveCollection());
+      } else {
+        hourlyPointCollection.removeAll();
       }
-      hourlyPointCollection = viewer.scene.primitives.add(new Cesium.PointPrimitiveCollection());
 
       // 고정 절대 스케일: 연간 100~400 kWh/m²/yr → 시간당 환산 후 정규화
       // 근거: 에너지절약설계기준 신축 기준선 150 kWh/m²/yr, ZEB5 비주거 130 kWh/m²/yr,
@@ -1273,9 +1278,11 @@
       const LOAD_MIN = (100 / 365) * 0.3;  // 효율 건물(ZEB4~5 수준) 비사용 시간대
       const LOAD_MAX = (400 / 365) * 1.0;  // 노후 건물 피크 부하
 
+      const loads = [];
       (hourlyData.features || []).forEach((f) => {
         const profile = getHourlyProfile(f.usage_type);
         const load = f.eui_daily * profile[hour];
+        loads.push(load);
         const relLoad = Math.max(0, Math.min(1, (load - LOAD_MIN) / (LOAD_MAX - LOAD_MIN)));
         hourlyPointCollection.add({
           position: Cesium.Cartesian3.fromDegrees(f.lng, f.lat, 5),
@@ -1318,8 +1325,9 @@
     }
 
     function clearHourlyLayer() {
+      if (hourlyAbortCtrl) { hourlyAbortCtrl.abort(); hourlyAbortCtrl = null; }
       if (hourlyPointCollection) {
-        ws3d.viewer.scene.primitives.remove(hourlyPointCollection);
+        ws3d?.viewer?.scene.primitives.remove(hourlyPointCollection);
         hourlyPointCollection = null;
       }
       if (hourlyPlayTimer) { clearInterval(hourlyPlayTimer); hourlyPlayTimer = null; }
@@ -1340,13 +1348,16 @@
         legend.style.display = 'block';
         ctrl.style.display = 'flex';
         loadHourlyLayer();
-        ws3d.viewer.camera.moveEnd.addEventListener(() => { if (hourlyMode) loadHourlyLayer(); });
+        // 기존 리스너 제거 후 등록 (ON/OFF 반복 시 누적 방지)
+        if (hourlyMoveEndRemover) { hourlyMoveEndRemover(); hourlyMoveEndRemover = null; }
+        hourlyMoveEndRemover = ws3d.viewer.camera.moveEnd.addEventListener(() => { if (hourlyMode) loadHourlyLayer(); });
       } else {
         btn.textContent = '⏰ 시간대 애니메이션';
         btn.style.background = 'rgba(255,255,255,0.92)';
         btn.style.color = '#333';
         legend.style.display = 'none';
         ctrl.style.display = 'none';
+        if (hourlyMoveEndRemover) { hourlyMoveEndRemover(); hourlyMoveEndRemover = null; }
         clearHourlyLayer();
       }
     }
@@ -1895,7 +1906,7 @@
       };
       const tier = p.data_tier || 4;
       const t = TIER_INFO[tier] || TIER_INFO[4];
-      const srcName = SRC_LABEL[p.simulation_type] || p.simulation_type || "알 수 없음";
+      const srcName = escapeHtml(SRC_LABEL[p.simulation_type] || p.simulation_type || "알 수 없음");
       document.getElementById("p-data-source").innerHTML =
         `<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:12px;` +
         `background:${t.bg};color:${t.color};font-weight:600">` +
@@ -2019,7 +2030,7 @@
           ).join("") +
           `<div style="font-size:9px;color:#aaa;margin-top:4px">단가 기준 추정값. 실제 공사비 상이할 수 있음.</div>`;
       } catch (e) {
-        el.innerHTML = `<div style="font-size:11px;color:#ef4444">${e.message}</div>`;
+        el.textContent = e.message;
       } finally {
         btn.disabled = false;
         btn.textContent = "재계산";
@@ -2835,6 +2846,7 @@
 
     // --- Search ---
     let searchTimer = null;
+    let searchAbortCtrl = null;
     document.getElementById("search-input").addEventListener("input", function (e) {
       clearTimeout(searchTimer);
       const q = e.target.value;
@@ -2843,7 +2855,10 @@
         return;
       }
       searchTimer = setTimeout(function () {
-        fetch(API + "/search?q=" + encodeURIComponent(q))
+        // 이전 요청 취소 (빠른 타이핑 시 응답 순서 역전 방지)
+        if (searchAbortCtrl) searchAbortCtrl.abort();
+        searchAbortCtrl = new AbortController();
+        fetch(API + "/search?q=" + encodeURIComponent(q), { signal: searchAbortCtrl.signal })
           .then((r) => r.json())
           .then((data) => {
             const el = document.getElementById("search-results");

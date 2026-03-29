@@ -127,6 +127,24 @@ _ACCURACY_QUERY = text(
     """
 )
 
+# 용도별/연대별 성능 분해 — mean_mape에 묻히는 세그먼트 문제 파악용
+_ACCURACY_BY_SEGMENT_QUERY = text(
+    """
+    SELECT
+        be.usage_type,
+        be.vintage_class,
+        COUNT(*)                                              AS n,
+        ROUND(AVG(ep.error_pct)::numeric, 1)                 AS mape,
+        ROUND(SQRT(AVG(ep.error_abs * ep.error_abs))::numeric, 1) AS rmse
+    FROM energy_predictions ep
+    JOIN buildings_enriched be ON ep.pnu = be.pnu
+    WHERE ep.model_version_id = :model_version_id
+      AND ep.actual_eui IS NOT NULL
+    GROUP BY be.usage_type, be.vintage_class
+    ORDER BY mape DESC NULLS LAST
+    """
+)
+
 
 # ---------------------------------------------------------------------------
 # 1. 모델 로드
@@ -244,7 +262,11 @@ def batch_predict_buildings(
             X: pd.DataFrame = pipeline.transform(records)
             means, lowers, uppers = predictor.predict_with_interval(X)
         except Exception as exc:
-            logger.error("배치 %d 예측 실패: %s", batch_idx, exc)
+            logger.error(
+                "배치 %d 예측 실패 (%d건 손실): %s — 영향 PNU 샘플: %s",
+                batch_idx, len(valid_rows), exc,
+                [r.get("pnu") for r in valid_rows[:5]],
+            )
             continue
 
         insert_params: list[dict[str, Any]] = []
@@ -345,10 +367,24 @@ def evaluate_tier1_accuracy(engine: Engine, model_version_id: int) -> dict[str, 
     else:
         logger.warning("Tier1 정확도 집계 대상 없음 (model_version_id=%d)", model_version_id)
 
+    # 용도별/연대별 세그먼트 성능 분해 로깅
+    with engine.connect() as conn:
+        seg_rows = conn.execute(
+            _ACCURACY_BY_SEGMENT_QUERY, {"model_version_id": model_version_id}
+        ).mappings().all()
+    if seg_rows:
+        logger.info("용도별/연대별 Tier1 MAPE 분해 (상위 10):")
+        for r in seg_rows[:10]:
+            logger.info(
+                "  %-20s %-12s  n=%3d  MAPE=%5.1f%%  RMSE=%5.1f",
+                r["usage_type"], r["vintage_class"], r["n"], r["mape"] or 0, r["rmse"] or 0,
+            )
+
     return {
         "updated_count": updated_count,
         "mean_mape": mean_mape,
         "mean_rmse": mean_rmse,
+        "segment_accuracy": [dict(r) for r in seg_rows],
     }
 
 

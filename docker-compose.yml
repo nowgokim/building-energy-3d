@@ -3,16 +3,17 @@ services:
     image: pgrouting/pgrouting:16-3.5-3.6.3
     restart: unless-stopped
     ports:
-      - "5434:5432"
+      - "127.0.0.1:5434:5432"   # 로컬 바인딩 — 외부 직접 접근 차단
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./db/init.sql:/docker-entrypoint-initdb.d/01-init.sql
     environment:
       POSTGRES_DB: buildings
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-devpassword}
-      POSTGRES_HOST_AUTH_METHOD: trust
-      POSTGRES_INITDB_ARGS: "--auth-host=trust"
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set in .env}
+      # trust 인증 제거 — scram-sha-256 사용 (기존 컨테이너는 pg_hba.conf 수동 업데이트 필요)
+      POSTGRES_HOST_AUTH_METHOD: scram-sha-256
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
@@ -23,19 +24,20 @@ services:
     image: redis:7-alpine
     restart: unless-stopped
     ports:
-      - "6379:6379"
-    command: redis-server --appendonly yes
+      - "127.0.0.1:6379:6379"   # 로컬 바인딩 — 외부 직접 접근 차단
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env}
     volumes:
       - redisdata:/data
 
   api:
     build: .
     restart: unless-stopped
-    command: uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
+    command: uvicorn src.main:app --host 0.0.0.0 --port 8000  # --reload 제거 (프로덕션)
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"  # 외부 직접 노출 차단 (Cloudflare Tunnel → Vite 프록시 경유)
     volumes:
-      - .:/app
+      - .:/app:ro  # 읽기 전용 마운트 — 컨테이너 침해 시 호스트 파일 변조 방지
+      - /app/scratch  # scratch 폴더만 쓰기 허용
     depends_on:
       db:
         condition: service_healthy
@@ -44,15 +46,16 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgresql://postgres:${DB_PASSWORD:-devpassword}@db:5432/buildings
-      REDIS_URL: redis://redis:6379
+      DATABASE_URL: postgresql://postgres:${DB_PASSWORD}@db:5432/buildings
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
 
   worker:
     build: .
     restart: unless-stopped
-    command: celery -A src.shared.celery_app worker --loglevel=info
+    command: celery -A src.shared.celery_app worker --loglevel=warning
     volumes:
-      - .:/app
+      - .:/app:ro
+      - /app/scratch
     depends_on:
       db:
         condition: service_healthy
@@ -61,8 +64,8 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgresql://postgres:${DB_PASSWORD:-devpassword}@db:5432/buildings
-      REDIS_URL: redis://redis:6379
+      DATABASE_URL: postgresql://postgres:${DB_PASSWORD}@db:5432/buildings
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
 
   frontend:
     image: node:20-alpine

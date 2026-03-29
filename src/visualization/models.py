@@ -8,11 +8,12 @@ model_registry / model_versions / energy_predictions / model_accuracy_summary MV
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from src.shared.database import get_db_dependency
+from src.shared.limiter import limiter
 
 logger = logging.getLogger(__name__)
 
@@ -272,7 +273,8 @@ def get_building_prediction_history(
 
 
 @router.post("/retrain")
-def trigger_retrain():
+@limiter.limit("3/minute")  # 재학습은 GPU/CPU 집약적 — 엄격히 제한
+def trigger_retrain(request: Request):
     """
     XGBoost EUI 재학습 Celery 태스크를 큐에 등록한다.
 
