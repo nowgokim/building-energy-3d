@@ -13,7 +13,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -37,6 +37,8 @@ class FilterRequest(BaseModel):
     vintage_classes: list[str] = []
     usage_types: list[str] = []
     bbox: list[float] = []  # [west, south, east, north]
+    page: int = Field(default=1, ge=1)
+    page_size: int = Field(default=1000, ge=1, le=1000)  # 최대 1000건 (지도 오버레이 상한)
 
     @model_validator(mode="before")
     @classmethod
@@ -107,6 +109,10 @@ def _filtered_rows(db: Session, filters: FilterRequest) -> tuple[list, int]:
     """Execute a filtered query. Returns (rows, total_count)."""
     where_clause, params = _build_filter_query(filters)
 
+    offset = (filters.page - 1) * filters.page_size
+    params["_limit"] = filters.page_size
+    params["_offset"] = offset
+
     sql = text(f"""
         SELECT
             b.pnu,
@@ -130,16 +136,17 @@ def _filtered_rows(db: Session, filters: FilterRequest) -> tuple[list, int]:
             FROM energy_results WHERE pnu = b.pnu AND is_current = TRUE LIMIT 1
         ) er ON true
         {where_clause}
-        LIMIT 1000
+        LIMIT :_limit OFFSET :_offset
     """)
     rows = db.execute(sql, params).fetchall()
 
-    # 1,000건 상한에 걸렸을 때만 별도 COUNT 조회
-    if len(rows) == 1000:
-        count_sql = text(f"SELECT COUNT(*) FROM buildings_enriched b {where_clause}")
-        total = db.execute(count_sql, params).scalar() or 1000
-    else:
+    # 전체 건수: 첫 페이지에서 page_size 미만이면 COUNT 불필요
+    if offset == 0 and len(rows) < filters.page_size:
         total = len(rows)
+    else:
+        count_sql = text(f"SELECT COUNT(*) FROM buildings_enriched b {where_clause}")
+        count_params = {k: v for k, v in params.items() if not k.startswith("_")}
+        total = db.execute(count_sql, count_params).scalar() or 0
 
     return rows, total
 

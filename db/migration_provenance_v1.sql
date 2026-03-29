@@ -414,6 +414,7 @@ FROM energy_predictions ep
 JOIN model_versions mv  ON ep.model_version_id = mv.id
 JOIN model_registry mr  ON mv.model_id = mr.id
 WHERE ep.actual_eui IS NOT NULL   -- 실측값 있는 건만 평가
+  AND ep.actual_eui >= 5          -- EUI≈0인 이상치 제외 (MAPE 분모 폭발 방지)
 GROUP BY
     mv.id, mr.model_name, mr.model_type, mv.version_tag,
     mr.stage, ep.temporal_scale, ep.target_variable;

@@ -7,6 +7,7 @@ from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import BaseHTTPMiddleware
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
@@ -46,6 +47,18 @@ if "*" in allowed_origins:
         "Set explicit origins in ALLOWED_ORIGINS environment variable."
     )
 
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """기본 보안 응답 헤더를 모든 API 응답에 주입한다."""
+
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        return response
+
+
+app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(GZipMiddleware, minimum_size=1000, compresslevel=6)  # 9→6: CPU 비용 절감
 app.add_middleware(
     CORSMiddleware,
