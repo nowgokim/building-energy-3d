@@ -187,12 +187,9 @@ CITY_EUI_BASE: dict[tuple[str, str], dict] = {
     ("Warehouse", "Ulsan"): {"median": 39.1, "p10": 30.8, "p90": 47.5, "n": 5246},
 }
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Korean_BB 아키타입 → ems_transformer building 매핑
-# ──────────────────────────────────────────────────────────────────────────────
-# Korean_BB에는 없는 도시(Incheon, Gwangju, Daejeon, Cheongju, Ulsan)의
-# 도시 보정계수를 ems_transformer E0에서 파생하기 위한 매핑.
-KBB_TO_EMS_BUILDING: dict[str, str] = {
+# building-energy-3d 아키타입 → ems_transformer 건물 유형 매핑
+# eui_lookup.get_eui()에서 신규 도시 보정에 사용
+ARCHETYPE_TO_EMS: dict[str, str] = {
     "apartment_highrise": "Apartment",
     "apartment_midrise":  "Apartment",
     "hospital":           "Hospital",
@@ -206,71 +203,34 @@ KBB_TO_EMS_BUILDING: dict[str, str] = {
     "warehouse":          "Warehouse",
 }
 
-# ems_transformer city명 (TitleCase) 정규화
-_EMS_CITY_ALIASES: dict[str, str] = {
-    "seoul":     "Seoul",
-    "busan":     "Busan",
-    "daegu":     "Daegu",
-    "incheon":   "Incheon",
-    "gwangju":   "Gwangju",
-    "daejeon":   "Daejeon",
-    "ulsan":     "Ulsan",
-    "gangneung": "Gangneung",
-    "cheongju":  "Cheongju",
-    "jeju":      "Jeju",
+# 도시명 정규화 (소문자 → CITY_EUI_BASE 키 형식)
+_CITY_NORMALIZE: dict[str, str] = {
+    "seoul": "Seoul", "busan": "Busan", "daegu": "Daegu",
+    "incheon": "Incheon", "gwangju": "Gwangju", "daejeon": "Daejeon",
+    "ulsan": "Ulsan", "cheongju": "Cheongju", "gangneung": "Gangneung",
+    "jeju": "Jeju",
 }
 
 
-def get_city_factor(kbb_arch: str, city_lower: str) -> float:
-    """Korean_BB 아키타입 + 도시에 대한 Seoul 대비 EUI 보정계수.
+def get_city_ratio(archetype: str, city: str, reference: str = "seoul") -> float | None:
+    """도시 보정비 = CITY_EUI_BASE[arch, city].median / CITY_EUI_BASE[arch, reference].median.
 
-    Korean_BB에 없는 도시(인천·광주·대전·청주·울산)의 EUI를
-    ems_transformer E0 중앙값 비율로 추정한다.
-
-    Returns
-    -------
-    float
-        city_EUI / Seoul_EUI 비율. 데이터 없으면 1.0 (Seoul 동일).
+    eui_lookup.get_eui()에서 신규 5개 도시의 EUI를 서울 기준값에 보정하는 데 사용.
+    매핑 실패 또는 데이터 없을 때 None 반환 → 호출자가 서울 폴백 적용.
     """
-    ems_building = KBB_TO_EMS_BUILDING.get(kbb_arch)
-    if ems_building is None:
-        return 1.0
-    ems_city = _EMS_CITY_ALIASES.get(city_lower)
-    if ems_city is None:
-        return 1.0
-    city_val = CITY_EUI_BASE.get((ems_building, ems_city))
-    seoul_val = CITY_EUI_BASE.get((ems_building, "Seoul"))
-    if city_val is None or seoul_val is None or seoul_val["median"] == 0:
-        return 1.0
-    return round(city_val["median"] / seoul_val["median"], 4)
+    ems_b = ARCHETYPE_TO_EMS.get(archetype)
+    if ems_b is None:
+        return None
+    city_key = _CITY_NORMALIZE.get(city)
+    ref_key = _CITY_NORMALIZE.get(reference)
+    if city_key is None or ref_key is None:
+        return None
+    ref_stats = CITY_EUI_BASE.get((ems_b, ref_key))
+    tgt_stats = CITY_EUI_BASE.get((ems_b, city_key))
+    if ref_stats is None or tgt_stats is None or ref_stats["median"] == 0:
+        return None
+    return round(tgt_stats["median"] / ref_stats["median"], 4)
 
 
-# sigungu_cd 앞 2자리 → ems_transformer 도시명 (소문자)
-# 광역시/도 단위 매핑 — 시군구 단위 추가 시 별도 dict 확장
-SIGUNGU_TO_CITY: dict[str, str] = {
-    "11": "seoul",      # 서울특별시
-    "21": "busan",      # 부산광역시
-    "22": "daegu",      # 대구광역시
-    "23": "incheon",    # 인천광역시
-    "24": "gwangju",    # 광주광역시
-    "25": "daejeon",    # 대전광역시
-    "26": "ulsan",      # 울산광역시
-    "29": "daejeon",    # 세종특별자치시 (대전 폴백)
-    "41": "seoul",      # 경기도 (서울 폴백 — 기후 유사)
-    "42": "gangneung",  # 강원도
-    "43": "cheongju",   # 충청북도
-    "44": "daejeon",    # 충청남도 (대전 폴백)
-    "45": "gwangju",    # 전라북도 (광주 폴백)
-    "46": "gwangju",    # 전라남도 (광주 폴백)
-    "47": "daegu",      # 경상북도 (대구 폴백)
-    "48": "busan",      # 경상남도 (부산 폴백)
-    "50": "jeju",       # 제주특별자치도
-}
-
-
-def sigungu_to_city(sigungu_cd: str | None) -> str:
-    """sigungu_cd 5자리 → ems_transformer 도시명 (소문자). 미매칭 시 'seoul'."""
-    if not sigungu_cd:
-        return "seoul"
-    prefix = str(sigungu_cd)[:2]
-    return SIGUNGU_TO_CITY.get(prefix, "seoul")
+# eui_lookup.py 호환 alias
+get_city_factor = get_city_ratio
