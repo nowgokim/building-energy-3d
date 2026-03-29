@@ -156,45 +156,39 @@ def get_building_stats(
         )
         params = {"west": west, "south": south, "east": east, "north": north}
 
-    # Total count and average energy
-    summary_sql = text(f"""
-        SELECT
-            COUNT(*) AS total_count,
-            AVG(er.total_energy) AS avg_energy
-        FROM buildings_enriched b
-        LEFT JOIN energy_results er ON b.pnu = er.pnu AND er.is_current = TRUE
-        {bbox_clause}
+    # 단일 CTE로 3개 집계를 1회 DB 왕복에 처리
+    stats_sql = text(f"""
+        WITH base AS (
+            SELECT b.energy_grade, b.usage_type, er.total_energy
+            FROM buildings_enriched b
+            LEFT JOIN energy_results er ON b.pnu = er.pnu AND er.is_current = TRUE
+            {bbox_clause}
+        ),
+        summary AS (
+            SELECT COUNT(*) AS total_count, AVG(total_energy) AS avg_energy FROM base
+        ),
+        grade_agg AS (
+            SELECT json_object_agg(grade, cnt) AS grade_dist
+            FROM (
+                SELECT COALESCE(energy_grade, 'unknown') AS grade, COUNT(*) AS cnt
+                FROM base GROUP BY 1 ORDER BY 1
+            ) g
+        ),
+        usage_agg AS (
+            SELECT json_object_agg(usage, cnt) AS usage_dist
+            FROM (
+                SELECT COALESCE(usage_type, 'unknown') AS usage, COUNT(*) AS cnt
+                FROM base GROUP BY 1 ORDER BY cnt DESC
+            ) u
+        )
+        SELECT s.total_count, s.avg_energy, g.grade_dist, u.usage_dist
+        FROM summary s CROSS JOIN grade_agg g CROSS JOIN usage_agg u
     """)
-    row = db.execute(summary_sql, params).fetchone()
-    total_count = row.total_count if row else 0
+    row = db.execute(stats_sql, params).fetchone()
+    total_count = int(row.total_count) if row else 0
     avg_energy = float(row.avg_energy) if row and row.avg_energy else None
-
-    # Grade distribution
-    grade_sql = text(f"""
-        SELECT
-            COALESCE(b.energy_grade, 'unknown') AS grade,
-            COUNT(*) AS cnt
-        FROM buildings_enriched b
-        LEFT JOIN energy_results er ON b.pnu = er.pnu AND er.is_current = TRUE
-        {bbox_clause}
-        GROUP BY COALESCE(b.energy_grade, 'unknown')
-        ORDER BY grade
-    """)
-    grade_rows = db.execute(grade_sql, params).fetchall()
-    grade_distribution = {r.grade: r.cnt for r in grade_rows}
-
-    # Usage distribution
-    usage_sql = text(f"""
-        SELECT
-            COALESCE(b.usage_type, 'unknown') AS usage,
-            COUNT(*) AS cnt
-        FROM buildings_enriched b
-        {bbox_clause}
-        GROUP BY COALESCE(b.usage_type, 'unknown')
-        ORDER BY cnt DESC
-    """)
-    usage_rows = db.execute(usage_sql, params).fetchall()
-    usage_distribution = {r.usage: r.cnt for r in usage_rows}
+    grade_distribution = dict(row.grade_dist) if row and row.grade_dist else {}
+    usage_distribution = dict(row.usage_dist) if row and row.usage_dist else {}
 
     logger.info(
         "Stats requested — total_count=%d, bbox=%s",

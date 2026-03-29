@@ -332,14 +332,7 @@ def get_timeseries(
     존재하지 않는 ts_id는 404를 반환한다 (빈 배열 반환 방지).
     """
     # ts_id 존재 여부 검증 — start/end 파라미터 체크보다 먼저 실행 (404 우선)
-    ts_exists_sql = text(
-        "SELECT 1 FROM monitored_buildings WHERE ts_id = :ts_id LIMIT 1"
-    )
-    if db.execute(ts_exists_sql, {"ts_id": ts_id}).fetchone() is None:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Monitored building ts_id={ts_id} not found",
-        )
+    _assert_ts_exists(db, ts_id)
 
     if start is None or end is None:
         raise HTTPException(status_code=422, detail="start and end query parameters are required")
@@ -609,6 +602,15 @@ def get_anomalies(
 # POST /api/v1/monitor/readings  — CSV 업로드
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _assert_ts_exists(db: Session, ts_id: int) -> None:
+    """ts_id가 monitored_buildings에 존재하지 않으면 HTTPException 404."""
+    sql = text("SELECT 1 FROM monitored_buildings WHERE ts_id = :ts_id LIMIT 1")
+    if db.execute(sql, {"ts_id": ts_id}).fetchone() is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Monitored building ts_id={ts_id} not found",
+        )
+
 # 지원 포맷 컬럼 매핑
 # KEPCO AMI CSV: "측정시각,전력량(kWh)"
 # 가스공사 CSV:  "검침일시,사용량(m3)"
@@ -670,6 +672,80 @@ def _parse_ts(value: str) -> datetime:
     raise ValueError(f"날짜 파싱 실패: '{value}'")
 
 
+def _decode_csv_content(content: bytes) -> str:
+    """바이트를 UTF-8-SIG → EUC-KR 순으로 디코딩. 실패 시 HTTPException 400."""
+    for encoding in ("utf-8-sig", "euc-kr"):
+        try:
+            return content.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+    raise HTTPException(
+        status_code=400,
+        detail="파일 인코딩을 인식할 수 없습니다 (UTF-8 또는 EUC-KR 필요)",
+    )
+
+
+def _parse_csv_readings(
+    text_content: str,
+    ts_id: int,
+    meter: str,
+    unit: str,
+) -> tuple[list[dict], int, int]:
+    """CSV 텍스트를 파싱하여 (삽입 행 목록, 전체 행 수, 파싱 오류 수) 반환."""
+    reader = csv.DictReader(io.StringIO(text_content))
+    if reader.fieldnames is None:
+        raise HTTPException(status_code=400, detail="CSV 헤더를 읽을 수 없습니다")
+
+    ts_col, val_col = _detect_columns(list(reader.fieldnames))
+    rows_to_insert: list[dict] = []
+    parse_errors = 0
+    row_count = 0
+
+    for row in reader:
+        row_count += 1
+        if row_count > 100_000:
+            raise HTTPException(status_code=400, detail="최대 100,000행을 초과합니다")
+
+        raw_ts = row.get(ts_col, "").strip()
+        raw_val = row.get(val_col, "").strip()
+        if not raw_ts or not raw_val:
+            parse_errors += 1
+            continue
+
+        try:
+            recorded_at = _parse_ts(raw_ts)
+            value = float(raw_val.replace(",", ""))
+        except (ValueError, TypeError):
+            parse_errors += 1
+            continue
+
+        rows_to_insert.append({
+            "ts_id": ts_id,
+            "meter_type": meter,
+            "recorded_at": recorded_at,
+            "value": value,
+            "unit": unit,
+        })
+
+    return rows_to_insert, row_count, parse_errors
+
+
+def _bulk_insert_readings(db: Session, rows_to_insert: list[dict]) -> int:
+    """1,000행 단위 청크로 metered_readings에 UPSERT. 삽입된 행 수 반환."""
+    insert_sql = text("""
+        INSERT INTO metered_readings (ts_id, meter_type, recorded_at, value, unit)
+        VALUES (:ts_id, :meter_type, :recorded_at, :value, :unit)
+        ON CONFLICT (ts_id, meter_type, recorded_at) DO NOTHING
+    """)
+    inserted = 0
+    CHUNK = 1_000
+    for i in range(0, len(rows_to_insert), CHUNK):
+        result = db.execute(insert_sql, rows_to_insert[i : i + CHUNK])
+        inserted += result.rowcount
+    db.commit()
+    return inserted
+
+
 @router.post("/readings", response_model=ReadingUploadResponse)
 async def upload_readings(
     ts_id: int = Query(..., description="대상 monitored_buildings.ts_id"),
@@ -694,10 +770,10 @@ async def upload_readings(
       2. ts_id 존재 여부 (404) — file 유무보다 선행
       3. file 필수 여부 (400)
     """
+    # 1. 파라미터 유효성 검증
     if meter not in ("electricity", "gas", "heat", "water"):
         raise HTTPException(status_code=400, detail=f"Unknown meter type: '{meter}'")
 
-    # unit 파라미터 화이트리스트 검증 (임의 문자열이 DB에 저장되는 것을 방지)
     _ALLOWED_UNITS = {"kWh", "m3", "MJ", "Gcal", "Nm3"}
     if unit not in _ALLOWED_UNITS:
         raise HTTPException(
@@ -705,73 +781,22 @@ async def upload_readings(
             detail=f"Unknown unit '{unit}'. Allowed: {sorted(_ALLOWED_UNITS)}",
         )
 
-    # ts_id 존재 여부 검증 (file 검증보다 먼저 실행하여 404가 422보다 우선하도록 함)
-    # UploadFile을 Optional로 선언해 FastAPI Request Validation이 file 미첨부 시
-    # 422를 즉시 반환하는 것을 방지한다.
-    ts_exists_sql = text(
-        "SELECT 1 FROM monitored_buildings WHERE ts_id = :ts_id LIMIT 1"
-    )
-    if db.execute(ts_exists_sql, {"ts_id": ts_id}).fetchone() is None:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Monitored building ts_id={ts_id} not found",
-        )
+    # 2. ts_id 존재 확인 (file 검증보다 선행 → 404가 422보다 우선)
+    _assert_ts_exists(db, ts_id)
 
-    # ts_id 검증 통과 후 file 필수 검사
+    # 3. 파일 필수 확인
     if file is None:
         raise HTTPException(status_code=400, detail="CSV 파일이 필요합니다 (multipart/form-data)")
 
-    # 파일 크기 제한 (10MB)
+    # 4. 파일 크기 제한 (10MB)
     MAX_SIZE = 10 * 1024 * 1024
     content = await file.read(MAX_SIZE + 1)
     if len(content) > MAX_SIZE:
         raise HTTPException(status_code=413, detail="파일 크기가 10MB를 초과합니다")
 
-    # BOM 제거 후 디코딩 (EUC-KR / UTF-8-SIG 대응)
-    try:
-        text_content = content.decode("utf-8-sig")
-    except UnicodeDecodeError:
-        try:
-            text_content = content.decode("euc-kr")
-        except UnicodeDecodeError:
-            raise HTTPException(status_code=400, detail="파일 인코딩을 인식할 수 없습니다 (UTF-8 또는 EUC-KR 필요)")
-
-    reader = csv.DictReader(io.StringIO(text_content))
-    if reader.fieldnames is None:
-        raise HTTPException(status_code=400, detail="CSV 헤더를 읽을 수 없습니다")
-
-    ts_col, val_col = _detect_columns(list(reader.fieldnames))
-
-    rows_to_insert: list[dict] = []
-    parse_errors = 0
-    row_count = 0
-
-    for row in reader:
-        row_count += 1
-        if row_count > 100_000:
-            raise HTTPException(status_code=400, detail="최대 100,000행을 초과합니다")
-
-        raw_ts = row.get(ts_col, "").strip()
-        raw_val = row.get(val_col, "").strip()
-
-        if not raw_ts or not raw_val:
-            parse_errors += 1
-            continue
-
-        try:
-            recorded_at = _parse_ts(raw_ts)
-            value = float(raw_val.replace(",", ""))
-        except (ValueError, TypeError):
-            parse_errors += 1
-            continue
-
-        rows_to_insert.append({
-            "ts_id":       ts_id,
-            "meter_type":  meter,
-            "recorded_at": recorded_at,
-            "value":       value,
-            "unit":        unit,
-        })
+    # 5. CSV 디코딩 + 파싱
+    text_content = _decode_csv_content(content)
+    rows_to_insert, row_count, parse_errors = _parse_csv_readings(text_content, ts_id, meter, unit)
 
     if not rows_to_insert:
         raise HTTPException(
@@ -779,21 +804,10 @@ async def upload_readings(
             detail=f"유효한 행이 없습니다. 파싱 오류: {parse_errors}행",
         )
 
-    # 배치 삽입 (1,000행 단위 청크)
-    inserted = 0
-    CHUNK = 1_000
-    insert_sql = text("""
-        INSERT INTO metered_readings (ts_id, meter_type, recorded_at, value, unit)
-        VALUES (:ts_id, :meter_type, :recorded_at, :value, :unit)
-        ON CONFLICT (ts_id, meter_type, recorded_at) DO NOTHING
-    """)
-    for i in range(0, len(rows_to_insert), CHUNK):
-        chunk = rows_to_insert[i : i + CHUNK]
-        result = db.execute(insert_sql, chunk)
-        inserted += result.rowcount
-    db.commit()
+    # 6. DB 배치 삽입
+    inserted = _bulk_insert_readings(db, rows_to_insert)
 
-    # 캐시 무효화: 해당 건물 상세, 시계열, 이상치
+    # 7. 캐시 무효화
     _cache_delete_pattern(f"monitor:ts:{ts_id}:*")
     _cache_delete_pattern(f"monitor:building:{ts_id}:*")
     _cache_delete_pattern("monitor:anomalies:*")
@@ -804,11 +818,11 @@ async def upload_readings(
     )
 
     return {
-        "ts_id":        ts_id,
-        "meter":        meter,
-        "rows_parsed":  row_count,
-        "rows_inserted": inserted,
-        "parse_errors": parse_errors,
+        "ts_id":             ts_id,
+        "meter":             meter,
+        "rows_parsed":       row_count,
+        "rows_inserted":     inserted,
+        "parse_errors":      parse_errors,
         "skipped_duplicates": len(rows_to_insert) - inserted,
     }
 
