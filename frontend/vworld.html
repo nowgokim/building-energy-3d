@@ -692,6 +692,8 @@
       <dt>건축년도</dt><dd id="p-year">-</dd>
     </dl>
     <div id="p-energy-chart"></div>
+    <div id="p-monthly-chart" style="display:none;border-top:1px solid #eee;padding-top:6px;margin-top:4px"></div>
+    <div id="p-envelope-section" style="display:none;border-top:1px solid #eee;padding-top:6px;margin-top:4px"></div>
     <div id="p-fire-risk" style="display:none;border-top:1px solid #eee;padding-top:8px;margin-top:6px;"></div>
     <div id="p-retrofit" style="display:none;border-top:1px solid #eee;padding-top:8px;margin-top:6px;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
@@ -1968,6 +1970,68 @@
             .join("");
       } else {
         document.getElementById("p-energy-chart").innerHTML = "";
+      }
+
+      // F-DET-05: 외피 정보 (archetype U-value)
+      const envContainer = document.getElementById('p-envelope-section');
+      if (p.envelope && envContainer) {
+        const env = p.envelope;
+        const uClass = v => v <= 0.3 ? '#16a34a' : v <= 0.8 ? '#ca8a04' : '#ef4444';
+        envContainer.style.display = '';
+        envContainer.innerHTML =
+          `<div style="font-size:11px;color:#888;margin:10px 0 4px">외피 열관류율 (W/m²K) · 아키타입 추정</div>` +
+          `<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:12px">` +
+          `<div style="background:#f8fafc;border-radius:4px;padding:4px 6px">` +
+            `<span style="color:#64748b">벽체</span> <b style="color:${uClass(env.wall_uvalue)}">${env.wall_uvalue}</b></div>` +
+          `<div style="background:#f8fafc;border-radius:4px;padding:4px 6px">` +
+            `<span style="color:#64748b">지붕</span> <b style="color:${uClass(env.roof_uvalue)}">${env.roof_uvalue}</b></div>` +
+          `<div style="background:#f8fafc;border-radius:4px;padding:4px 6px">` +
+            `<span style="color:#64748b">창호</span> <b style="color:${uClass(env.window_uvalue)}">${env.window_uvalue}</b></div>` +
+          `<div style="background:#f8fafc;border-radius:4px;padding:4px 6px">` +
+            `<span style="color:#64748b">창면적비</span> <b>${(env.wwr*100).toFixed(0)}%</b></div>` +
+          `</div>`;
+      } else if (envContainer) {
+        envContainer.style.display = 'none';
+      }
+
+      // F-ENR-05: 월별 에너지 분포 차트 (합성 프로파일)
+      const monthlyContainer = document.getElementById('p-monthly-chart');
+      if (p.energy && monthlyContainer) {
+        const MONTHLY_HEAT = [0.22,0.18,0.14,0.07,0.02,0,0,0,0.01,0.05,0.13,0.18]; // Jan-Dec
+        const MONTHLY_COOL = [0,0,0,0.02,0.08,0.14,0.28,0.26,0.14,0.06,0.02,0];
+        const MONTHLY_BASE = [1/12,1/12,1/12,1/12,1/12,1/12,1/12,1/12,1/12,1/12,1/12,1/12];
+        const e = p.energy;
+        const heat = e.heating || 0, cool = e.cooling || 0;
+        const base = (e.hot_water||0) + (e.lighting||0) + (e.ventilation||0);
+        const months = ['1','2','3','4','5','6','7','8','9','10','11','12'];
+        const vals = months.map((_,i) =>
+          heat*MONTHLY_HEAT[i] + cool*MONTHLY_COOL[i] + base*MONTHLY_BASE[i]
+        );
+        const maxV = Math.max(...vals);
+        monthlyContainer.style.display = '';
+        monthlyContainer.innerHTML =
+          `<div style="font-size:11px;color:#888;margin:10px 0 4px">월별 에너지 분포 (추정)</div>` +
+          `<div style="display:flex;align-items:flex-end;gap:2px;height:40px">` +
+          vals.map((v,i) => {
+            const hPct = heat*MONTHLY_HEAT[i]/Math.max(v,0.01)*100;
+            const cPct = cool*MONTHLY_COOL[i]/Math.max(v,0.01)*100;
+            const bPct = 100-hPct-cPct;
+            const barH = maxV > 0 ? Math.round(v/maxV*36) : 0;
+            return `<div style="flex:1;display:flex;flex-direction:column-reverse;height:${barH}px;border-radius:2px 2px 0 0;overflow:hidden" title="${months[i]}월: ${v.toFixed(1)} kWh/m²">` +
+              `<div style="height:${hPct}%;background:#ef4444;min-height:0"></div>` +
+              `<div style="height:${cPct}%;background:#3b82f6;min-height:0"></div>` +
+              `<div style="height:${bPct}%;background:#a855f7;min-height:0"></div>` +
+              `</div>`;
+          }).join('') +
+          `</div>` +
+          `<div style="display:flex;gap:8px;font-size:9px;color:#888;margin-top:3px">` +
+          `<span><span style="color:#ef4444">■</span>난방</span>` +
+          `<span><span style="color:#3b82f6">■</span>냉방</span>` +
+          `<span><span style="color:#a855f7">■</span>기타</span>` +
+          `<span style="margin-left:auto">1&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;12월</span>` +
+          `</div>`;
+      } else if (monthlyContainer) {
+        monthlyContainer.style.display = 'none';
       }
 
       // 비교 추가 버튼 (분석 패널 연동)

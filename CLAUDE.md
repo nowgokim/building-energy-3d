@@ -2,7 +2,7 @@
 
 ## 프로젝트 현재 상태
 
-**단계: Phase 3.5 완료 + Phase F0~F4 완료 + Tier C Monitor 완료 + Korean_BB EUI 전체 적용 + 배포 완료 + Phase 4-E ML 인프라 완료** — 2026-03-29 기준
+**단계: Phase 3.5 완료 + Phase F0~F4 완료 + Tier C Monitor 완료 + Korean_BB EUI 전체 적용 + 배포 완료 + Phase 4 전체 완료 + Phase 5 핵심 기능 완료** — 2026-03-30 기준
 
 **서비스 URL**: https://building-energy.xyz (Cloudflare Tunnel → Windows Docker, RTX 4090)
 
@@ -79,7 +79,7 @@ docker compose exec db psql -U postgres -d buildings -f /docker-entrypoint-initd
 | **4-C** | 아키타입 83 → 115종 (지역난방·온돌·데이터센터·복합용도) | ✅ 완료 (2026-03-29) |
 | **4-D** | EnergyPlus on-demand retrofit (runner+task+API) | ✅ 완료 (2026-03-29) |
 | **4-E** | ML 예측 고도화 (일단위 XGBoost + 시간단위 LSTM) | ✅ 인프라 완료 (2026-03-29). Tier C 데이터 12개월 누적 후 ts_retrain 활성화 (2027-03~) |
-| **5** | 시간대 애니메이션 + 건물 비교 + ZEB 전환 지도 | ⏳ Phase 4 완료 후 |
+| **5** | 시간대 애니메이션 + 건물 비교 + ZEB 전환 지도 + 외피 정보 + 월별 분포 차트 | ✅ 완료 (2026-03-30) |
 
 **화재 안전 관련 문서**: [PRD-FIRE-SAFETY.md](./docs/PRD-FIRE-SAFETY.md) · [RFC-FIRE-SAFETY.md](./docs/RFC-FIRE-SAFETY.md) · [FIRE-SAFETY-WORKPLAN.md](./docs/FIRE-SAFETY-WORKPLAN.md)
 

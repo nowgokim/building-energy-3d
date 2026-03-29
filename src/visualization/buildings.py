@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from src.shared.database import get_db_dependency
 from src.shared.constants import SIGUNGU_NAMES as _SIGUNGU_NAMES, ZEB_THRESHOLD as _ZEB_THRESHOLD
 from src.simulation.retrofit import ALL_MEASURE_IDS, simulate_retrofit
+from src.simulation.archetypes import match_archetype as _match_archetype
 
 logger = logging.getLogger(__name__)
 
@@ -584,6 +585,25 @@ def get_building_detail(
         }
     result["properties"]["data_tier"] = row.data_tier
     result["properties"]["simulation_type"] = row.simulation_type
+
+    # F-DET-05: 외피 정보 (archetype 기반 U-value)
+    try:
+        arch = _match_archetype(
+            usage_type=row.usage_type or "residential",
+            built_year=int(row.built_year) if row.built_year else 1990,
+            total_area=float(row.total_area) if row.total_area else 100.0,
+            structure_type=row.structure_type or "RC",
+        )
+        result["properties"]["envelope"] = {
+            "wall_uvalue":   round(arch["wall_uvalue"],   2),
+            "roof_uvalue":   round(arch["roof_uvalue"],   2),
+            "window_uvalue": round(arch["window_uvalue"], 2),
+            "wwr":           round(arch["wwr"],           2),
+            "archetype_usage":   arch["usage_type"],
+            "archetype_vintage": arch["vintage_class"],
+        }
+    except Exception:
+        pass
 
     return result
 
