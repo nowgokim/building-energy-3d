@@ -15,7 +15,6 @@ import re
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-import redis as redis_lib
 from fastapi import (
     APIRouter,
     Depends,
@@ -29,7 +28,7 @@ from fastapi import (
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from src.shared.config import get_settings
+from src.shared.cache import get_redis as _get_redis_factory
 from src.shared.database import get_db_dependency, engine
 from src.shared.monitor_models import (
     MonitorBuildingDetail,
@@ -45,16 +44,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/monitor", tags=["monitor"])
 
-# ── Redis 클라이언트 (캐시 전용) ───────────────────────────────────────────────
-
-_redis: Optional[redis_lib.Redis] = None
-
-
-def _get_redis() -> redis_lib.Redis:
-    global _redis
-    if _redis is None:
-        _redis = redis_lib.from_url(get_settings().REDIS_URL, decode_responses=True)
-    return _redis
+def _get_redis():
+    return _get_redis_factory()
 
 
 # ── 캐시 헬퍼 ────────────────────────────────────────────────────────────────
@@ -62,7 +53,10 @@ def _get_redis() -> redis_lib.Redis:
 def _cache_get(key: str) -> Optional[dict]:
     """Redis에서 JSON 캐시 조회. 미스이면 None 반환."""
     try:
-        raw = _get_redis().get(key)
+        r = _get_redis()
+        if r is None:
+            return None
+        raw = r.get(key)
         if raw:
             return json.loads(raw)
     except Exception as exc:
@@ -73,7 +67,10 @@ def _cache_get(key: str) -> Optional[dict]:
 def _cache_set(key: str, data: dict, ttl: int) -> None:
     """Redis에 JSON 캐시 저장. Redis 장애 시 조용히 무시."""
     try:
-        _get_redis().setex(key, ttl, json.dumps(data, default=str))
+        r = _get_redis()
+        if r is None:
+            return
+        r.setex(key, ttl, json.dumps(data, default=str))
     except Exception as exc:
         logger.warning("Redis SET error key=%s: %s", key, exc)
 
@@ -86,6 +83,8 @@ def _cache_delete_pattern(pattern: str) -> None:
     """
     try:
         r = _get_redis()
+        if r is None:
+            return
         cursor = 0
         keys_to_delete: list[str] = []
         while True:

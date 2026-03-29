@@ -27,6 +27,10 @@ celery.conf.update(
             "task": "src.monitor.tasks.detect_anomalies_task",
             "schedule": 3600,  # 1시간마다
         },
+        "refresh-mv-daily": {
+            "task": "src.data_ingestion.tasks.refresh_mv_task",
+            "schedule": 86400,  # 24시간마다
+        },
     },
 )
 

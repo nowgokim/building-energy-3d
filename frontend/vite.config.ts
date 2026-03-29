@@ -8,6 +8,7 @@ export default defineConfig({
   server: {
     port: 5173,
     host: true,
+    allowedHosts: ["building-energy.xyz", "www.building-energy.xyz"],
     proxy: {
       "/api": process.env.API_HOST ?? "http://localhost:8000",
       "/tiles": process.env.API_HOST ?? "http://localhost:8000",

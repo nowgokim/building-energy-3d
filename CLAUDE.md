@@ -2,7 +2,9 @@
 
 ## 프로젝트 현재 상태
 
-**단계: Phase 3.5 완료 + Phase F0~F4 완료 + Tier C Monitor 완료** — 2026-03-27 기준
+**단계: Phase 3.5 완료 + Phase F0~F4 완료 + Tier C Monitor 완료 + Korean_BB EUI 전체 적용 + 배포 완료** — 2026-03-28 기준
+
+**서비스 URL**: https://building-energy.xyz (Cloudflare Tunnel → Windows Docker, RTX 4090)
 
 ### 구현 완료 (Phase 0~3)
 
@@ -10,9 +12,12 @@
 |------|------|------|
 | `docs/` | ✅ 100% | PRD v1.2, Architecture v1.2, RFC 문서 |
 | `docker-compose.yml` | ✅ 100% | PostGIS(5434), Redis(6379), API(8000), Worker |
-| `src/data_ingestion/` | ⚠️ 97% | VWorld **766,386건**(footprint) · 건축물대장 **1,160,817건**(서울 25개 구) · **Tier1** 실측 89건 · **Tier2** 인증/등급 3,588건 · **Tier4** 아키타입. ⚠️ **부천시(41190) 미수집** — 약 70K건 미분류(KI-002) |
+| `src/data_ingestion/` | ⚠️ 97% | VWorld **766,386건**(footprint) · 건축물대장 **1,160,817건**(서울 25개 구) · **Tier1** 실측 90건 · **Tier2** 인증/등급 3,588건 · **Tier4** Korean_BB 643,710건 + fallback 1,531건. ⚠️ **부천시(41190) 미수집** — 약 70K건 미분류(KI-002) |
 | `src/geometry/` | ✅ 100% | PNU 생성/파싱, 좌표 변환 (EPSG:5174→4326) |
-| `src/simulation/` | ⚠️ 40% | archetype **83종** (9용도×4연대×2~3구조) + 에너지 추정. EnergyPlus/ML 미연동 |
+| `src/simulation/` | ⚠️ 55% | archetype **83종** (9용도×4연대×2~3구조) + Korean_BB EUI 룩업 + Tier1 보정계수. EnergyPlus/ML 미연동 |
+| `src/simulation/eui_lookup.py` | ✅ 100% | Korean_BB 350개 (archetype×vintage×city) EUI 룩업테이블 (자동생성) |
+| `src/simulation/calibration_factors.py` | ✅ 100% | Tier1 실측 기반 용도별 보정계수 10종 (자동생성) |
+| `src/data_ingestion/populate_korean_bb_eui.py` | ✅ 100% | 770K 건물 배치 EUI UPSERT (Tier4, COPY bulk) |
 | `src/simulation/ml_xgboost.py` | ✅ 100% | Tier A/B XGBoost EUI 예측 (Tier1×5 가중치, StratifiedKFold, 예측구간) |
 | `src/simulation/ml_timeseries.py` | ✅ 100% | Tier C 시계열 단기 예측 (lag features, XGBoost) |
 | `db/` (Provenance) | ✅ 100% | data_sources(7건+tier_c_metered) + pipeline_runs + model_registry + model_versions + energy_predictions(파티션) + model_accuracy_summary MV |
@@ -60,20 +65,17 @@ docker compose exec db psql -U postgres -d buildings -f /docker-entrypoint-initd
 | F3 대피경로 | ✅ 100% | pgRouting Dijkstra + evacuation_points 35개 (25구 전체) |
 | F4 기상 연동 | ✅ 100% | apihub.kma.go.kr + data.go.kr 폴백 + /ws/weather WebSocket + Celery beat 1h |
 
-### 미착수 (Phase 4~5)
+### Phase 4 — 진행 중/예정 (상세: [docs/ENERGYPLUS_PLAN.md](./docs/ENERGYPLUS_PLAN.md))
 
-| 모듈 | 설명 |
-|------|------|
-| EnergyPlus 연동 | OpenStudio/geomeppy 시뮬레이션 (83 archetype × 8760시간) |
-| 에너지 예측 모델 | Pluggable Architecture — EnergyPredictor ABC, ModelRegistry |
-| 일단위 예측 | XGBoost (기본) → 사용자 커스텀 모델 교체 가능 |
-| 시간단위 예측 | LSTM (기본) → 사용자 커스텀 모델 교체 가능 |
-| 온돌 모델링 | 바닥복사난방 (공동주택) |
-| 리트로핏 추정 | 창호/외단열 변경 효과 |
-| UHI 보정 | 도시열섬 효과 반영 |
-| Phase 4 | archetype 120종 + 지역난방 + 온돌 + EnergyPlus + 예측 모델 |
-| Phase 4 | CO2 배출량 + 1차에너지 환산 + 리트로핏 비용 계산 |
-| Phase 5 | 시간대 애니메이션 + 건물 비교 + ZEB 전환 지도 + 전국 확장 |
+| Phase | 항목 | 상태 |
+|-------|------|------|
+| **4-A** | MV 자동 REFRESH (Celery beat 24h) | ✅ 완료 (2026-03-29) |
+| **4-A** | 에너지 등급 배지 UI (1+++~5 색상) | ✅ 완료 (2026-03-29) |
+| **4-B** | ems_transformer E0 도시별 기준 EUI 추출 | ✅ 완료 (2026-03-29) |
+| **4-C** | 아키타입 83 → 115종 (지역난방·온돌·데이터센터·복합용도) | ✅ 완료 (2026-03-29) |
+| **4-D** | EnergyPlus on-demand retrofit (runner+task+API) | ✅ 완료 (2026-03-29) |
+| **4-E** | ML 예측 고도화 (일단위 XGBoost + 시간단위 LSTM) | ⏳ Tier C 12개월 후 (2027-03~) |
+| **5** | 시간대 애니메이션 + 건물 비교 + ZEB 전환 지도 | ⏳ Phase 4 완료 후 |
 
 **화재 안전 관련 문서**: [PRD-FIRE-SAFETY.md](./docs/PRD-FIRE-SAFETY.md) · [RFC-FIRE-SAFETY.md](./docs/RFC-FIRE-SAFETY.md) · [FIRE-SAFETY-WORKPLAN.md](./docs/FIRE-SAFETY-WORKPLAN.md)
 
@@ -82,21 +84,28 @@ docker compose exec db psql -U postgres -d buildings -f /docker-entrypoint-initd
 | ID | 내용 | 건수 | 해결 난이도 |
 |----|------|------|------------|
 | KI-001 | 용도 '미분류' 건물 (서울 미등록 건물) | ~116K | ❌ 데이터 근본 부재 |
-| **KI-002** | **부천시 API 불가(39K·영구갭) + 기타경기도 수집완료(135K)** | **~175K** | **⚠️ 부천시만 잔존 (파일다운로드 필요)** |
-| KI-003 | 이상 데이터 (built_year/height 오기입 등) | 46+1+62건 | △ views.sql CASE 추가 |
-| KI-004 | filter-result-badge z-index 겹침 | UI | △ CSS 1줄 수정 |
+| KI-002 | 부천시 공장 파일 임포트 완료(2,302건), 나머지 비공장 건물 미공개 | ~33K | ❌ 근본 해결 불가 |
+| ~~KI-003~~ | ~~이상 데이터 (built_year/height 오기입)~~ | 46+1건 | ✅ views.sql CASE 적용 (2026-03-28) |
+| ~~KI-004~~ | ~~filter-result-badge z-index 겹침~~ | UI | ✅ 해결 (2026-03-28) |
+| ~~KI-005~~ | ~~kea_cert 음수 EUI 3건~~ | 3건 | ✅ 해결 (2026-03-28, Tier4 재삽입) |
 
-**KI-002 수집 명령**:
+**부천시 재적재**: `scratch/bucheon_ledger.csv` (공장 2,302건) 파일 있음
 ```bash
-python -c "
-from src.data_ingestion.collect_ledger import collect_bucheon_ledger
-import os
-collect_bucheon_ledger(os.environ['DATA_GO_KR_API_KEY'], os.environ['DATABASE_URL'])
-"
-# 수집 후 MV REFRESH
-docker compose exec db psql -U postgres -d buildings -c "REFRESH MATERIALIZED VIEW CONCURRENTLY buildings_enriched;"
-docker compose exec db psql -U postgres -d buildings -c "REFRESH MATERIALIZED VIEW CONCURRENTLY building_fire_risk;"
+docker compose exec api python -m src.data_ingestion.import_bucheon_file --file scratch/bucheon_ledger.csv
 ```
+
+## 배포 구성 (2026-03-28 완료)
+
+| 항목 | 내용 |
+|------|------|
+| URL | https://building-energy.xyz |
+| 서버 | Windows 11 RTX 4090 (자택) |
+| 터널 | Cloudflare Tunnel (ID: `39a65ef6-8e7d-4fc7-900a-771910f8b986`) |
+| 서비스 | `Cloudflared` Windows 서비스 (Automatic) |
+| 트래픽 흐름 | Cloudflare Edge → cloudflared → localhost:5173 (Vite) |
+
+**재부팅 자동 복구**: Docker `restart: unless-stopped` + Cloudflared Windows 서비스.
+**상세 배포 가이드**: [docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md)
 
 ## ⚠️ 변경 관리 원칙 (수정 전 필독)
 

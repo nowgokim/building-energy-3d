@@ -51,7 +51,7 @@ VWorld footprint DB에 경기도 건물 약 **175K건** 포함. 구성:
 
 | 구분 | 건수 | API 가용 | 해결 방법 |
 |------|------|---------|---------|
-| 부천시 (41190/41195/41197/41199) | ~39K | ❌ | 영구 데이터 갭 (아래 설명) |
+| 부천시 (41190/41195/41197/41199) | ~3.2K footprint | ❌ | 영구 데이터 갭 (아래 설명) |
 | 기타 경기도 (성남/광명/구리/안산 등) | ~135K | ✅ | `collect_gyeonggi_ledger()` |
 
 #### 부천시 API 완전 불가 — 영구 데이터 갭
@@ -64,21 +64,28 @@ VWorld footprint DB에 경기도 건물 약 **175K건** 포함. 구성:
 **원인**: 2016년 부천시 일반구 폐지 시 국토부 건축물대장 DB 마이그레이션 불완전.
 `getBrRecapTitleInfo` API가 부천시 코드에 대해 데이터를 반환하지 않음.
 
-**대안**:
-- [경기도 부천시 건축물대장 파일 데이터 (data.go.kr)](https://www.data.go.kr/data/15144153/fileData.do) — 파일 다운로드 방식
+#### 부천시 공장 파일 임포트 완료 (2026-03-28)
+
+data.go.kr 데이터셋 15144153 ("경기도 부천시_건축물대장_20250627")을 Playwright로 다운로드.
+- 원본: 12,798행 (공장 건물만) → 중복 제거 후 2,302건 → `building_ledger` 적재 완료
+- 부천 footprint(3,161건) 중 191건(6%) 이제 용도 '공장'으로 분류됨
+- 나머지 2,970건은 주택·상업 등 비공장 건물로 이 데이터셋에 포함 안 됨
+- **근본적 해결 불가**: 종합 건축물대장 파일 데이터 미공개, API 영구 갭 지속
+
+재적재 명령:
+```bash
+docker compose exec api python -m src.data_ingestion.import_bucheon_file \
+  --file scratch/bucheon_ledger.csv
+docker compose exec db psql -U postgres -d buildings -c \
+  "REFRESH MATERIALIZED VIEW buildings_enriched;"
+docker compose exec db psql -U postgres -d buildings -c \
+  "REFRESH MATERIALIZED VIEW building_fire_risk;"
+```
 
 #### 기타 경기도 수집 완료 (2026-03-28)
 
 DB의 footprint PNU에서 직접 (sigungu, bdong) 조합 추출 → API 수집 실행.
 160개 조합, 총괄표제부 + 표제부 수집.
-
-수집 후 MV REFRESH 필요:
-```bash
-docker compose exec db psql -U postgres -d buildings -c \
-  "REFRESH MATERIALIZED VIEW CONCURRENTLY buildings_enriched;"
-docker compose exec db psql -U postgres -d buildings -c \
-  "REFRESH MATERIALIZED VIEW CONCURRENTLY building_fire_risk;"
-```
 
 ---
 
@@ -102,11 +109,26 @@ docker compose exec db psql -U postgres -d buildings -c \
 
 ---
 
-## KI-004: filter-result-badge z-index 겹침
+## ~~KI-004: filter-result-badge z-index 겹침~~
 
 **발견일**: 2026-03-27
 **심각도**: 낮음 (UI 표시 문제)
-**현재 상태**: ⚠️ 미해결
+**현재 상태**: ✅ 해결 (2026-03-28)
 
-`#filter-result-badge`(z-index:99) < `#filter-panel`(z-index:100) 로 배지가 필터 패널 뒤에 숨음.
-수정: `#filter-result-badge { z-index: 101; }` 로 변경.
+`#filter-result-badge` z-index: 99 → 101로 수정. `vworld.html` 적용 완료.
+
+---
+
+## ~~KI-005: kea_cert 음수 EUI 3건~~
+
+**발견일**: 2026-03-28
+**심각도**: 낮음 (3건, 데이터 품질)
+**현재 상태**: ✅ 해결 (2026-03-28)
+
+Tier 2 음수 EUI 3건 DELETE → Korean_BB calibrated Tier 4로 재삽입.
+
+| PNU | 구 EUI | 신 EUI | 신 유형 |
+|-----|--------|--------|--------|
+| 1138010300100980007 | -80.9 | 172.5 | korean_bb_calibrated |
+| 1168010300100140000 | -28.1 | 64.0  | korean_bb_calibrated |
+| 1135010600101070054 | -0.2  | 58.0  | korean_bb_calibrated |

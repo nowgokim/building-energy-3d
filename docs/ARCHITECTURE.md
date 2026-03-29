@@ -2,7 +2,7 @@
 
 **문서 버전**: 1.3
 **작성일**: 2026-03-21
-**최종 수정**: 2026-03-27 (Tier C Monitor 완료 · ML ml_xgboost+ml_timeseries · /monitor MPA · Phase F2~F4 완료)
+**최종 수정**: 2026-03-28 (Korean_BB EUI 643K건 적용 · Cloudflare Tunnel 배포 · building-energy.xyz 서비스 중)
 **관련 문서**: [PRD](./PRD.md) | [PRD-FIRE-SAFETY](./PRD-FIRE-SAFETY.md) | [RFC-FIRE-SAFETY](./RFC-FIRE-SAFETY.md) | [FIRE-SAFETY-WORKPLAN](./FIRE-SAFETY-WORKPLAN.md)
 
 ---
@@ -13,8 +13,9 @@
 
 서울특별시 전역 **766,386동**의 건물을 3D로 시각화하고, 에너지 시뮬레이션 결과와 화재 위험도를 오버레이하는 웹 플랫폼.
 
-- **데이터 커버리지**: 서울 25개 구 전역 (VWorld footprint 766K + 건축물대장 1,160,817건)
-- **현재 단계**: Phase F0~F4 완료 + Tier C Monitor 완료 (에너지 Tier1~4, 화재안전 시뮬·대피경로·기상연동, 실계량기 시계열 모니터링)
+- **데이터 커버리지**: 서울 25개 구 전역 (VWorld footprint 766K + 건축물대장 1,160,817건 + 에너지 648,919건 100%)
+- **현재 단계**: Phase F0~F4 완료 + Tier C Monitor 완료 + Korean_BB EUI 전체 적용 + 외부 배포 (building-energy.xyz)
+- **배포**: Cloudflare Tunnel → Windows Docker Compose (RTX 4090), https://building-energy.xyz
 
 ### 1.2 시스템 경계
 

@@ -6,7 +6,8 @@ import type {
   SearchResult,
 } from "../types/building";
 
-async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
+export async function fetchJSON<T>(url: string, init?: RequestInit, signal?: AbortSignal): Promise<T> {
+  if (signal && !init?.signal) init = { ...init, signal };
   let resp: Response;
   try {
     resp = await fetch(url, init);

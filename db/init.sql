@@ -63,6 +63,7 @@ CREATE TABLE IF NOT EXISTS energy_results (
     simulated_at    TIMESTAMP DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_energy_pnu ON energy_results(pnu);
+CREATE INDEX IF NOT EXISTS idx_energy_results_pnu_current ON energy_results(pnu, is_current) WHERE is_current = TRUE;
 
 -- 4. 건물 원형
 CREATE TABLE IF NOT EXISTS building_archetypes (

@@ -154,6 +154,63 @@ ARCHETYPE_PARAMS: dict[tuple[str, str, str], dict[str, float]] = {
     ("mixed_use", "2001-2010", "steel"):  {"wall_uvalue": 0.45, "roof_uvalue": 0.27, "window_uvalue": 2.20, "wwr": 0.50, "ref_heating": 40.0,  "ref_cooling": 40.0, "ref_total": 145.0},
     ("mixed_use", "post-2010", "RC"):     {"wall_uvalue": 0.27, "roof_uvalue": 0.18, "window_uvalue": 1.50, "wwr": 0.45, "ref_heating": 24.0,  "ref_cooling": 34.0, "ref_total": 110.0},
     ("mixed_use", "post-2010", "steel"):  {"wall_uvalue": 0.25, "roof_uvalue": 0.16, "window_uvalue": 1.40, "wwr": 0.50, "ref_heating": 22.0,  "ref_cooling": 36.0, "ref_total": 108.0},
+
+    # =========================================================================
+    # Apartment — District Heating (지역난방 공동주택)
+    # 서울·인천 고층 아파트: 지역열공급망 → 건물 내 난방·온수 에너지 ~25% 절감.
+    # 기존 apartment RC 대비 ref_heating ×0.73, ref_total ×0.85.
+    # =========================================================================
+    ("apartment_district_heating", "pre-1980", "RC"):    {"wall_uvalue": 1.50, "roof_uvalue": 1.80, "window_uvalue": 5.80, "wwr": 0.25, "ref_heating": 88.0,  "ref_cooling": 18.0, "ref_total": 158.0},
+    ("apartment_district_heating", "pre-1980", "steel"): {"wall_uvalue": 2.20, "roof_uvalue": 2.50, "window_uvalue": 5.80, "wwr": 0.22, "ref_heating": 95.0,  "ref_cooling": 17.0, "ref_total": 168.0},
+    ("apartment_district_heating", "1980-2000", "RC"):   {"wall_uvalue": 0.76, "roof_uvalue": 0.58, "window_uvalue": 3.40, "wwr": 0.30, "ref_heating": 62.0,  "ref_cooling": 20.0, "ref_total": 125.0},
+    ("apartment_district_heating", "1980-2000", "steel"):{"wall_uvalue": 1.00, "roof_uvalue": 0.80, "window_uvalue": 3.40, "wwr": 0.28, "ref_heating": 66.0,  "ref_cooling": 19.0, "ref_total": 130.0},
+    ("apartment_district_heating", "2001-2010", "RC"):   {"wall_uvalue": 0.47, "roof_uvalue": 0.29, "window_uvalue": 2.40, "wwr": 0.35, "ref_heating": 40.0,  "ref_cooling": 22.0, "ref_total": 100.0},
+    ("apartment_district_heating", "2001-2010", "steel"):{"wall_uvalue": 0.45, "roof_uvalue": 0.27, "window_uvalue": 2.20, "wwr": 0.35, "ref_heating": 38.0,  "ref_cooling": 23.0, "ref_total": 98.0},
+    ("apartment_district_heating", "post-2010", "RC"):   {"wall_uvalue": 0.27, "roof_uvalue": 0.18, "window_uvalue": 1.50, "wwr": 0.35, "ref_heating": 22.0,  "ref_cooling": 24.0, "ref_total": 76.0},
+    ("apartment_district_heating", "post-2010", "steel"):{"wall_uvalue": 0.25, "roof_uvalue": 0.16, "window_uvalue": 1.40, "wwr": 0.35, "ref_heating": 20.0,  "ref_cooling": 25.0, "ref_total": 74.0},
+
+    # =========================================================================
+    # Apartment — Ondol (온돌 단독주택·다세대)
+    # 바닥복사난방: 낮은 설정온도로 동일 쾌적도 → ref_heating residential_single × 0.90.
+    # masonry/RC 구조 우세. 외피 성능은 residential_single과 동일.
+    # =========================================================================
+    ("apartment_ondol", "pre-1980", "masonry"): {"wall_uvalue": 2.50, "roof_uvalue": 2.50, "window_uvalue": 5.80, "wwr": 0.18, "ref_heating": 135.0, "ref_cooling": 12.0, "ref_total": 192.0},
+    ("apartment_ondol", "pre-1980", "RC"):      {"wall_uvalue": 1.80, "roof_uvalue": 2.00, "window_uvalue": 5.80, "wwr": 0.20, "ref_heating": 122.0, "ref_cooling": 13.0, "ref_total": 178.0},
+    ("apartment_ondol", "1980-2000", "masonry"):{"wall_uvalue": 1.20, "roof_uvalue": 0.90, "window_uvalue": 3.40, "wwr": 0.22, "ref_heating": 90.0,  "ref_cooling": 14.0, "ref_total": 150.0},
+    ("apartment_ondol", "1980-2000", "RC"):     {"wall_uvalue": 0.90, "roof_uvalue": 0.70, "window_uvalue": 3.40, "wwr": 0.25, "ref_heating": 81.0,  "ref_cooling": 15.0, "ref_total": 140.0},
+    ("apartment_ondol", "2001-2010", "masonry"):{"wall_uvalue": 0.65, "roof_uvalue": 0.45, "window_uvalue": 2.40, "wwr": 0.26, "ref_heating": 58.0,  "ref_cooling": 17.0, "ref_total": 117.0},
+    ("apartment_ondol", "2001-2010", "RC"):     {"wall_uvalue": 0.52, "roof_uvalue": 0.35, "window_uvalue": 2.40, "wwr": 0.28, "ref_heating": 52.0,  "ref_cooling": 18.0, "ref_total": 110.0},
+    ("apartment_ondol", "post-2010", "masonry"):{"wall_uvalue": 0.40, "roof_uvalue": 0.25, "window_uvalue": 1.50, "wwr": 0.28, "ref_heating": 34.0,  "ref_cooling": 20.0, "ref_total": 90.0},
+    ("apartment_ondol", "post-2010", "RC"):     {"wall_uvalue": 0.32, "roof_uvalue": 0.20, "window_uvalue": 1.50, "wwr": 0.30, "ref_heating": 30.0,  "ref_cooling": 21.0, "ref_total": 86.0},
+
+    # =========================================================================
+    # Data Center (데이터센터, IDC, 전산센터)
+    # 24/7 냉방 지배. PUE 기반 EUI: pre-1980=legacy machine room, post-2010=modern IDC.
+    # 난방=0, 온수=0. 냉방+UPS+조명+환기가 전부.
+    # ref_total 기준: post-2010 ~330 kWh/m²/yr (PUE 1.4), 2001-2010 ~450 (PUE 1.8).
+    # =========================================================================
+    ("datacenter", "pre-1980", "RC"):    {"wall_uvalue": 1.50, "roof_uvalue": 1.80, "window_uvalue": 5.80, "wwr": 0.10, "ref_heating": 0.0,  "ref_cooling": 620.0, "ref_total": 650.0},
+    ("datacenter", "pre-1980", "steel"): {"wall_uvalue": 1.70, "roof_uvalue": 2.00, "window_uvalue": 5.80, "wwr": 0.12, "ref_heating": 0.0,  "ref_cooling": 640.0, "ref_total": 670.0},
+    ("datacenter", "1980-2000", "RC"):   {"wall_uvalue": 0.80, "roof_uvalue": 0.60, "window_uvalue": 3.40, "wwr": 0.10, "ref_heating": 0.0,  "ref_cooling": 520.0, "ref_total": 545.0},
+    ("datacenter", "1980-2000", "steel"):{"wall_uvalue": 0.85, "roof_uvalue": 0.65, "window_uvalue": 3.40, "wwr": 0.12, "ref_heating": 0.0,  "ref_cooling": 540.0, "ref_total": 565.0},
+    ("datacenter", "2001-2010", "RC"):   {"wall_uvalue": 0.47, "roof_uvalue": 0.29, "window_uvalue": 2.40, "wwr": 0.10, "ref_heating": 0.0,  "ref_cooling": 430.0, "ref_total": 450.0},
+    ("datacenter", "2001-2010", "steel"):{"wall_uvalue": 0.45, "roof_uvalue": 0.27, "window_uvalue": 2.20, "wwr": 0.12, "ref_heating": 0.0,  "ref_cooling": 445.0, "ref_total": 465.0},
+    ("datacenter", "post-2010", "RC"):   {"wall_uvalue": 0.27, "roof_uvalue": 0.18, "window_uvalue": 1.50, "wwr": 0.10, "ref_heating": 0.0,  "ref_cooling": 308.0, "ref_total": 330.0},
+    ("datacenter", "post-2010", "steel"):{"wall_uvalue": 0.25, "roof_uvalue": 0.16, "window_uvalue": 1.40, "wwr": 0.12, "ref_heating": 0.0,  "ref_cooling": 295.0, "ref_total": 315.0},
+
+    # =========================================================================
+    # Mixed Residential-Commercial (주거+상업 복합용도)
+    # 서울 다세대주거+근린생활시설 복합 건물. apartment와 retail의 중간 특성.
+    # ref_total ≈ (apartment + retail) / 2 × 1.05 (복합 오버헤드).
+    # =========================================================================
+    ("mixed_residential_commercial", "pre-1980", "RC"):    {"wall_uvalue": 1.50, "roof_uvalue": 1.80, "window_uvalue": 5.80, "wwr": 0.35, "ref_heating": 100.0, "ref_cooling": 35.0, "ref_total": 198.0},
+    ("mixed_residential_commercial", "pre-1980", "masonry"):{"wall_uvalue": 2.00, "roof_uvalue": 2.20, "window_uvalue": 5.80, "wwr": 0.30, "ref_heating": 110.0, "ref_cooling": 32.0, "ref_total": 205.0},
+    ("mixed_residential_commercial", "1980-2000", "RC"):   {"wall_uvalue": 0.76, "roof_uvalue": 0.58, "window_uvalue": 3.40, "wwr": 0.40, "ref_heating": 70.0,  "ref_cooling": 30.0, "ref_total": 162.0},
+    ("mixed_residential_commercial", "1980-2000", "masonry"):{"wall_uvalue": 0.90, "roof_uvalue": 0.70, "window_uvalue": 3.40, "wwr": 0.35, "ref_heating": 75.0,  "ref_cooling": 28.0, "ref_total": 168.0},
+    ("mixed_residential_commercial", "2001-2010", "RC"):   {"wall_uvalue": 0.47, "roof_uvalue": 0.29, "window_uvalue": 2.40, "wwr": 0.45, "ref_heating": 45.0,  "ref_cooling": 34.0, "ref_total": 130.0},
+    ("mixed_residential_commercial", "2001-2010", "masonry"):{"wall_uvalue": 0.55, "roof_uvalue": 0.40, "window_uvalue": 2.40, "wwr": 0.40, "ref_heating": 48.0,  "ref_cooling": 32.0, "ref_total": 135.0},
+    ("mixed_residential_commercial", "post-2010", "RC"):   {"wall_uvalue": 0.27, "roof_uvalue": 0.18, "window_uvalue": 1.50, "wwr": 0.45, "ref_heating": 25.0,  "ref_cooling": 32.0, "ref_total": 98.0},
+    ("mixed_residential_commercial", "post-2010", "masonry"):{"wall_uvalue": 0.35, "roof_uvalue": 0.25, "window_uvalue": 1.50, "wwr": 0.40, "ref_heating": 28.0,  "ref_cooling": 30.0, "ref_total": 103.0},
 }
 
 # ---------------------------------------------------------------------------
@@ -171,6 +228,11 @@ _END_USE_RATIOS: dict[str, dict[str, float]] = {
     "warehouse":         {"heating": 0.35, "cooling": 0.12, "hot_water": 0.05, "lighting": 0.30, "ventilation": 0.18},
     "cultural":          {"heating": 0.35, "cooling": 0.18, "hot_water": 0.08, "lighting": 0.22, "ventilation": 0.17},
     "mixed_use":         {"heating": 0.28, "cooling": 0.22, "hot_water": 0.25, "lighting": 0.14, "ventilation": 0.11},
+    # Phase 4-C 신규 아키타입
+    "apartment_district_heating":      {"heating": 0.32, "cooling": 0.12, "hot_water": 0.28, "lighting": 0.15, "ventilation": 0.13},
+    "apartment_ondol":                 {"heating": 0.42, "cooling": 0.08, "hot_water": 0.30, "lighting": 0.11, "ventilation": 0.09},
+    "datacenter":                      {"heating": 0.01, "cooling": 0.75, "hot_water": 0.00, "lighting": 0.10, "ventilation": 0.14},
+    "mixed_residential_commercial":    {"heating": 0.34, "cooling": 0.20, "hot_water": 0.20, "lighting": 0.14, "ventilation": 0.12},
 }
 
 _DEFAULT_END_USE: dict[str, float] = {
@@ -229,6 +291,16 @@ _USAGE_KR_TO_EN: dict[str, str] = {
     "운동시설": "mixed_use",
     "복합건축물": "mixed_use",
     "관광휴게시설": "mixed_use",
+    # Phase 4-C 신규 아키타입
+    "지역난방공동주택": "apartment_district_heating",
+    "지역난방아파트":   "apartment_district_heating",
+    "온돌주택":         "apartment_ondol",
+    "데이터센터":       "datacenter",
+    "정보통신시설":     "datacenter",
+    "전산센터":         "datacenter",
+    "통신시설":         "datacenter",
+    "주거복합":         "mixed_residential_commercial",
+    "복합용도":         "mixed_residential_commercial",
 }
 
 
@@ -479,15 +551,20 @@ def estimate_energy(archetype_params: dict[str, Any]) -> dict[str, float]:
 
 # archetypes.py usage key → Korean_BB archetype ID
 _USAGE_TO_KBB: dict[str, str] = {
-    "apartment":           "apartment_highrise",  # floors_above ≤ 5 → midrise (런타임 판별)
-    "residential_single":  "apartment_midrise",
-    "office":              "office",
-    "retail":              "small_office",         # 근린생활시설 → small_office
-    "education":           "school",
-    "hospital":            "hospital",
-    "warehouse":           "warehouse",
-    "cultural":            "retail",               # 문화/집회 → retail 유사
-    "mixed_use":           "hotel",                # 숙박/복합 → hotel 유사
+    "apartment":                       "apartment_highrise",  # floors_above ≤ 5 → midrise (런타임 판별)
+    "residential_single":              "apartment_midrise",
+    "office":                          "office",
+    "retail":                          "small_office",         # 근린생활시설 → small_office
+    "education":                       "school",
+    "hospital":                        "hospital",
+    "warehouse":                       "warehouse",
+    "cultural":                        "retail",               # 문화/집회 → retail 유사
+    "mixed_use":                       "hotel",                # 숙박/복합 → hotel 유사
+    # Phase 4-C
+    "apartment_district_heating":      "apartment_highrise",   # 지역난방 고층 = highrise
+    "apartment_ondol":                 "apartment_midrise",    # 온돌 단독 = midrise 유사
+    "datacenter":                      "warehouse",            # Korean_BB 내 가장 유사
+    "mixed_residential_commercial":    "small_office",         # 복합용도 → small_office 유사
 }
 
 
@@ -525,7 +602,9 @@ def get_korean_bb_eui(
     floors_above:
         지상 층수. 아파트 고층/중층 구분에 사용.
     city:
-        도시 ('seoul', 'busan', 'daegu', 'gangneung', 'jeju'). 기본: 'seoul'.
+        도시 소문자 영문. Korean_BB 지원: seoul/busan/daegu/gangneung/jeju.
+        미지원 도시(incheon/gwangju/daejeon/cheongju/ulsan)는 ems_transformer
+        E0 보정계수를 자동 적용. 기본: 'seoul'.
 
     Returns
     -------
@@ -540,6 +619,10 @@ def get_korean_bb_eui(
         return None
 
     usage = _normalize_usage(usage_type)
+
+    # datacenter: Korean_BB에 대응 아키타입 없음 → fallback(ARCHETYPE_PARAMS)에 위임
+    if usage == "datacenter":
+        return None
 
     # 아파트: 층수 기반 고층/중층 구분
     if usage == "apartment":

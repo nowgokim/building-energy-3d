@@ -11,26 +11,14 @@ import json
 import logging
 from typing import Optional
 
-import redis as redis_lib
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, model_validator
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from src.shared.config import get_settings
+from src.shared.cache import get_redis as _get_redis
 from src.shared.database import get_db_dependency
-
-_redis: Optional[redis_lib.Redis] = None
-
-def _get_redis() -> Optional[redis_lib.Redis]:
-    global _redis
-    if _redis is None:
-        try:
-            _redis = redis_lib.from_url(get_settings().REDIS_URL, decode_responses=True)
-        except Exception:
-            return None
-    return _redis
 
 logger = logging.getLogger(__name__)
 

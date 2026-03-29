@@ -1,4 +1,5 @@
 import { API_BASE_URL } from "../utils/constants";
+import { fetchJSON } from "./client";
 import type {
   MonitorBuilding,
   MonitorBuildingListResponse,
@@ -8,20 +9,13 @@ import type {
   MeterFilter,
 } from "../types/monitor";
 
-async function fetchJSON<T>(url: string, signal?: AbortSignal): Promise<T> {
-  let resp: Response;
-  try {
-    resp = await fetch(url, { signal });
-  } catch (e) {
-    if ((e as Error).name === "AbortError") throw e;
-    throw new Error("서버에 연결할 수 없습니다");
+function buildUrl(base: string, params: Record<string, string | number | undefined>): string {
+  const sp = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined) sp.set(k, String(v));
   }
-  if (!resp.ok) {
-    throw new Error(
-      resp.status === 404 ? "데이터를 찾을 수 없습니다" : `서버 오류 (${resp.status})`
-    );
-  }
-  return resp.json();
+  const qs = sp.toString();
+  return qs ? `${base}?${qs}` : base;
 }
 
 export interface BuildingListParams {
@@ -36,16 +30,14 @@ export async function getMonitorBuildings(
   params: BuildingListParams = {},
   signal?: AbortSignal
 ): Promise<{ count: number; buildings: MonitorBuilding[] }> {
-  const sp = new URLSearchParams();
-  if (params.usageType && params.usageType !== "all") sp.set("usage_type", params.usageType);
-  if (params.meterType && params.meterType !== "all") sp.set("meter_type", params.meterType);
-  if (params.search) sp.set("q", params.search);
-  sp.set("page", String(params.page ?? 1));
-  sp.set("limit", String(params.limit ?? 100));
-  return fetchJSON<MonitorBuildingListResponse>(
-    `${API_BASE_URL}/monitor/buildings?${sp}`,
-    signal
-  );
+  const url = buildUrl(`${API_BASE_URL}/monitor/buildings`, {
+    usage_type: params.usageType && params.usageType !== "all" ? params.usageType : undefined,
+    meter_type: params.meterType && params.meterType !== "all" ? params.meterType : undefined,
+    q: params.search || undefined,
+    page: params.page ?? 1,
+    limit: params.limit ?? 100,
+  });
+  return fetchJSON<MonitorBuildingListResponse>(url, undefined, signal);
 }
 
 /**
@@ -77,10 +69,11 @@ export async function getTimeseries(
   const { start, end } = periodToDateRange(period);
   return fetchJSON<TimeseriesResponse>(
     `${API_BASE_URL}/monitor/timeseries/${ts_id}?start=${start}&end=${end}&resolution=daily&meter=${meter}`,
+    undefined,
     signal
   );
 }
 
 export async function getMonitorSummary(signal?: AbortSignal): Promise<MonitorSummary> {
-  return fetchJSON<MonitorSummary>(`${API_BASE_URL}/monitor/summary`, signal);
+  return fetchJSON<MonitorSummary>(`${API_BASE_URL}/monitor/summary`, undefined, signal);
 }

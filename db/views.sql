@@ -12,12 +12,15 @@ SELECT
     COALESCE(l_energy.main_purps_nm, l_best.main_purps_nm, l_parent.main_purps_nm, f.usage_type, '미분류') AS usage_type,
     COALESCE(l_best.strct_nm, l_parent.strct_nm) AS structure_type,
 
-    -- 높이 (우선순위: GIS > 대장 > 층수x3.3 > 10m)
-    COALESCE(
-        NULLIF(f.height, 0),
-        NULLIF(COALESCE(l_best.bld_ht, l_parent.bld_ht), 0),
-        GREATEST(COALESCE(l_best.grnd_flr_cnt, l_parent.grnd_flr_cnt, f.grnd_flr, 3), 1) * 3.3,
-        10.0
+    -- 높이 (우선순위: GIS > 대장 > 층수x3.3 > 10m). 롯데타워 555m 기준 650m 상한 클램핑
+    LEAST(
+        COALESCE(
+            NULLIF(f.height, 0),
+            NULLIF(COALESCE(l_best.bld_ht, l_parent.bld_ht), 0),
+            GREATEST(COALESCE(l_best.grnd_flr_cnt, l_parent.grnd_flr_cnt, f.grnd_flr, 3), 1) * 3.3,
+            10.0
+        ),
+        650.0
     ) AS height,
 
     COALESCE(l_best.grnd_flr_cnt, l_parent.grnd_flr_cnt, f.grnd_flr, 3) AS floors_above,
@@ -25,13 +28,19 @@ SELECT
     COALESCE(l_energy.tot_area, l_best.tot_area, l_parent.tot_area, 0) AS total_area,
     COALESCE(l_energy.bld_area, l_best.bld_area, l_parent.bld_area, 0) AS building_area,
 
-    -- 건축년도
+    -- 건축년도 (1900~2026 범위 외는 NULL 처리 — KI-003)
     CASE
         WHEN COALESCE(l_energy.use_apr_day, l_best.use_apr_day, l_parent.use_apr_day) IS NOT NULL
              AND COALESCE(l_energy.use_apr_day, l_best.use_apr_day, l_parent.use_apr_day) != ''
-            THEN LEFT(COALESCE(l_energy.use_apr_day, l_best.use_apr_day, l_parent.use_apr_day), 4)::INTEGER
+            THEN NULLIF(
+                CASE WHEN LEFT(COALESCE(l_energy.use_apr_day, l_best.use_apr_day, l_parent.use_apr_day), 4)::INTEGER BETWEEN 1900 AND 2026
+                     THEN LEFT(COALESCE(l_energy.use_apr_day, l_best.use_apr_day, l_parent.use_apr_day), 4)::INTEGER
+                     ELSE NULL END,
+                NULL)
         WHEN f.approval_date IS NOT NULL AND f.approval_date != ''
-            THEN LEFT(f.approval_date, 4)::INTEGER
+            THEN CASE WHEN LEFT(f.approval_date, 4)::INTEGER BETWEEN 1900 AND 2026
+                      THEN LEFT(f.approval_date, 4)::INTEGER
+                      ELSE NULL END
         ELSE NULL
     END AS built_year,
 

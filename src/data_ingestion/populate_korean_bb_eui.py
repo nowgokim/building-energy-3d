@@ -34,25 +34,10 @@ logger = logging.getLogger(__name__)
 # ── 경로 ───────────────────────────────────────────────────────────────────
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
-# ── 에너지 엔드유즈 비율 (usage key별 breakdown) ──────────────────────────
-# archetypes.py _END_USE_RATIOS와 동일값 유지
-_END_USE_RATIOS: dict[str, dict[str, float]] = {
-    "apartment":          {"heating": 0.42, "cooling": 0.10, "hot_water": 0.28, "lighting": 0.10, "ventilation": 0.10},
-    "residential_single": {"heating": 0.45, "cooling": 0.08, "hot_water": 0.30, "lighting": 0.08, "ventilation": 0.09},
-    "office":             {"heating": 0.30, "cooling": 0.25, "hot_water": 0.10, "lighting": 0.20, "ventilation": 0.15},
-    "retail":             {"heating": 0.22, "cooling": 0.30, "hot_water": 0.05, "lighting": 0.25, "ventilation": 0.18},
-    "education":          {"heating": 0.38, "cooling": 0.15, "hot_water": 0.15, "lighting": 0.18, "ventilation": 0.14},
-    "hospital":           {"heating": 0.32, "cooling": 0.22, "hot_water": 0.20, "lighting": 0.14, "ventilation": 0.12},
-    "warehouse":          {"heating": 0.35, "cooling": 0.12, "hot_water": 0.05, "lighting": 0.30, "ventilation": 0.18},
-    "cultural":           {"heating": 0.35, "cooling": 0.18, "hot_water": 0.08, "lighting": 0.22, "ventilation": 0.17},
-    "mixed_use":          {"heating": 0.28, "cooling": 0.22, "hot_water": 0.25, "lighting": 0.14, "ventilation": 0.11},
-}
-_DEFAULT_END_USE: dict[str, float] = {
-    "heating": 0.35, "cooling": 0.18, "hot_water": 0.18, "lighting": 0.16, "ventilation": 0.13,
-}
+from src.shared.database import get_pg_conn
+from src.simulation.archetypes import _END_USE_RATIOS, _DEFAULT_END_USE
 
-# ── 도시 매핑 (서울 외 도시는 현재 서울 보정계수 적용) ──────────────────
-CITY_DEFAULT = "seoul"
+from src.simulation.city_eui_base import sigungu_to_city
 
 
 def compute_eui_batch(df: pd.DataFrame) -> pd.DataFrame:
@@ -64,7 +49,6 @@ def compute_eui_batch(df: pd.DataFrame) -> pd.DataFrame:
     from src.simulation.archetypes import (
         get_korean_bb_eui,
         _normalize_usage,
-        _END_USE_RATIOS as _AR_RATIOS,
     )
 
     results = []
@@ -77,7 +61,8 @@ def compute_eui_batch(df: pd.DataFrame) -> pd.DataFrame:
         floors_above = row.get("floors_above")
         pnu = row["pnu"]
 
-        eui = get_korean_bb_eui(usage_type, built_year, floors_above, CITY_DEFAULT)
+        city = sigungu_to_city(row.get("sigungu_cd") or pnu[:5] if pnu else None)
+        eui = get_korean_bb_eui(usage_type, built_year, floors_above, city)
 
         if eui is None or eui <= 0:
             # fallback: archetypes.py ARCHETYPE_PARAMS 기반 추정
@@ -126,20 +111,6 @@ def compute_eui_batch(df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(results)
 
 
-def _get_pg_conn(db_url: str):
-    """Parse DATABASE_URL → psycopg2 connection."""
-    import psycopg2
-    from urllib.parse import urlparse
-    p = urlparse(db_url)
-    return psycopg2.connect(
-        host=p.hostname,
-        port=p.port or 5432,
-        dbname=p.path.lstrip("/"),
-        user=p.username,
-        password=p.password,
-    )
-
-
 def upsert_energy_results(result_df: pd.DataFrame, db_url: str, dry_run: bool = False) -> int:
     """Tier 4 에너지 결과를 energy_results에 bulk UPSERT.
 
@@ -153,7 +124,7 @@ def upsert_energy_results(result_df: pd.DataFrame, db_url: str, dry_run: bool = 
         return len(result_df)
 
     import io
-    conn = _get_pg_conn(db_url)
+    conn = get_pg_conn(db_url)
     cur = conn.cursor()
 
     # 임시 테이블 생성
@@ -277,7 +248,8 @@ def main():
         )
         limit_clause = f"LIMIT {args.limit}" if args.limit else ""
         query = f"""
-            SELECT pnu, usage_type, built_year, floors_above, total_area, structure_class
+            SELECT pnu, usage_type, built_year, floors_above, total_area, structure_class,
+                   LEFT(pnu, 5) AS sigungu_cd
             FROM buildings_enriched
             WHERE pnu IS NOT NULL
             {limit_clause}
@@ -318,7 +290,7 @@ def main():
 
     # 요약 통계 출력
     if not args.dry_run:
-        conn = _get_pg_conn(args.db_url)
+        conn = get_pg_conn(args.db_url)
         sample_df = pd.read_sql_query(
             "SELECT pnu, ROUND(total_energy::numeric,1) AS eui_kwh_m2, simulation_type "
             "FROM energy_results WHERE data_tier=4 ORDER BY RANDOM() LIMIT 10",

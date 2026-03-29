@@ -83,11 +83,13 @@ from src.visualization.search import router as search_router
 from src.fire_safety.risk import router as fire_router
 from src.visualization.monitor import router as monitor_router
 from src.visualization.monitor import monitor_ws
+from src.visualization.simulation import router as simulation_router
 
 app.include_router(buildings_router)
 app.include_router(search_router)
 app.include_router(fire_router)
 app.include_router(monitor_router)
+app.include_router(simulation_router)
 
 # 3D Tiles 정적 파일 서빙
 tiles_dir = settings.TILES_LOCAL_DIR

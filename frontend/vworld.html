@@ -3,8 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests">
   <title>마포구 3D 건물 에너지 지도</title>
-  <script src="https://map.vworld.kr/js/webglMapInit.js.do?version=3.0&apiKey=7313CF5F-7479-3683-A360-270B72C03B88&domain=jukim.github.io"></script>
+  <script src="https://map.vworld.kr/js/webglMapInit.js.do?version=3.0&apiKey=7313CF5F-7479-3683-A360-270B72C03B88&domain=building-energy.xyz"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: 'Pretendard', -apple-system, sans-serif; overflow: hidden; }
@@ -87,6 +88,14 @@
     .face-item { display: flex; align-items: center; gap: 4px; padding: 2px 0; border-bottom: 1px solid #eee; }
     .face-item .face-name { flex: 1; font-size: 10px; color: #555; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .face-item .face-remove { background: #ff5252; color: #fff; border: none; border-radius: 3px; padding: 1px 5px; cursor: pointer; font-size: 10px; flex-shrink: 0; }
+    /* 모바일 배너 */
+    #mobile-banner {
+      display: none; position: absolute; top: 0; left: 0; right: 0; z-index: 300;
+      background: #1e40af; color: #fff; font-size: 12px; padding: 8px 12px;
+      text-align: center;
+    }
+    #mobile-banner a { color: #93c5fd; text-decoration: none; font-weight: 600; }
+
     /* 좌측 세로 버튼 그룹 — 겹침 없는 단일 열 */
     .map-btn {
       position: absolute; left: 12px; z-index: 100;
@@ -94,6 +103,15 @@
       padding: 7px 13px; box-shadow: 0 2px 8px rgba(0,0,0,0.12);
       cursor: pointer; font-size: 12px; transition: background 0.2s, color 0.2s;
       white-space: nowrap;
+    }
+
+    /* 모바일: 버튼 터치 영역 확대, 배너 표시 */
+    @media (max-width: 768px) {
+      #mobile-banner { display: block; }
+      .map-btn { padding: 10px 14px; font-size: 13px; min-height: 40px; }
+      #search-bar { width: calc(100vw - 24px); }
+      #panel { width: calc(100vw - 24px); right: 12px; }
+      #stats-bar { font-size: 12px; padding: 6px 10px; }
     }
     #texture-btn { top: 60px; }
     #fire-btn    { top: 96px; }
@@ -103,7 +121,46 @@
     #filter-btn  { top: 240px; }
     #area-btn    { top: 276px; }
     #mode-btn    { top: 312px; }
-    #spread-btn  { top: 348px; }
+    #spread-btn   { top: 348px; }
+    #analysis-btn { top: 384px; }
+    /* 📊 분석 패널 */
+    #analysis-panel {
+      display: none; position: absolute; top: 12px; right: 12px; width: 320px;
+      max-height: calc(100vh - 24px); overflow-y: auto; z-index: 110;
+      background: rgba(255,255,255,0.97); border-radius: 10px;
+      box-shadow: 0 2px 16px rgba(0,0,0,0.18); font-size: 12px;
+    }
+    #analysis-panel .ap-header {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 10px 12px 0; font-size: 13px; font-weight: 600;
+      position: sticky; top: 0; background: rgba(255,255,255,0.97); z-index: 2;
+      cursor: grab; user-select: none;
+    }
+    #analysis-panel .ap-header:active { cursor: grabbing; }
+    #analysis-panel .ap-tabs {
+      display: flex; border-bottom: 1px solid #e5e5e5; margin: 8px 0 0;
+      position: sticky; top: 33px; background: rgba(255,255,255,0.97); z-index: 2;
+    }
+    #analysis-panel .ap-tab {
+      flex: 1; padding: 6px 0; text-align: center; cursor: pointer;
+      font-size: 11px; color: #888; border-bottom: 2px solid transparent;
+      transition: color 0.2s, border-color 0.2s;
+    }
+    #analysis-panel .ap-tab.active { color: #3b82f6; border-bottom-color: #3b82f6; }
+    #analysis-panel .ap-body { padding: 10px 12px 12px; }
+    .ap-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+    .ap-table th { background: #f5f7fa; padding: 5px 6px; text-align: left; color: #666; font-weight: 600; }
+    .ap-table td { padding: 5px 6px; border-bottom: 1px solid #f0f0f0; }
+    .ap-table tr:hover td { background: #f0f7ff; cursor: pointer; }
+    .eui-bar { height: 6px; border-radius: 3px; background: #e5e7eb; margin-top: 3px; }
+    .eui-bar-fill { height: 100%; border-radius: 3px; background: linear-gradient(90deg,#4cb848,#fdd835,#ef4444); }
+    .compare-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+    .compare-card { background: #f8f9fa; border-radius: 6px; padding: 8px; }
+    .compare-card .cc-label { font-size: 10px; color: #888; }
+    .compare-card .cc-val { font-size: 13px; font-weight: 600; }
+    .badge-tier { display:inline-block; padding:1px 5px; border-radius:4px; font-size:10px; font-weight:600; }
+    .tier-1 { background:#16a34a;color:#fff; } .tier-2 { background:#2563eb;color:#fff; }
+    .tier-3 { background:#7c3aed;color:#fff; } .tier-4 { background:#9ca3af;color:#fff; }
     #fire-legend {
       display: none; position: absolute; bottom: 76px; left: 12px; z-index: 100;
       background: rgba(255,255,255,0.93); border-radius: 8px; padding: 8px 12px;
@@ -235,7 +292,71 @@
   <button id="filter-btn"  class="map-btn" onclick="toggleFilterPanel()">🔍 필터</button>
   <button id="area-btn"    class="map-btn" onclick="toggleAreaSelect()">📐 영역 선택</button>
   <button id="mode-btn"    class="map-btn" onclick="toggle2DMode()">🗺 2D 보기</button>
-  <button id="spread-btn"  class="map-btn" onclick="toggleSpreadPanel()">💨 확산 시뮬</button>
+  <button id="spread-btn"   class="map-btn" onclick="toggleSpreadPanel()">💨 확산 시뮬</button>
+  <button id="analysis-btn" class="map-btn" onclick="toggleAnalysisPanel()">📊 분석</button>
+
+  <!-- Phase 5: 분석 패널 -->
+  <div id="analysis-panel">
+    <div class="ap-header">
+      <span>📊 에너지 분석</span>
+      <span style="cursor:pointer;color:#aaa;font-size:18px;line-height:1" onclick="toggleAnalysisPanel()">×</span>
+    </div>
+    <div class="ap-tabs">
+      <div class="ap-tab active" id="ap-tab-district" onclick="switchApTab('district')">구별 통계</div>
+      <div class="ap-tab" id="ap-tab-compare"  onclick="switchApTab('compare')">건물 비교</div>
+      <div class="ap-tab" id="ap-tab-retrofit" onclick="switchApTab('retrofit')">그린리모델링</div>
+    </div>
+    <div class="ap-body">
+      <!-- 구별 통계 탭 -->
+      <div id="ap-body-district">
+        <div style="color:#888;font-size:11px;margin-bottom:8px">ZEB 기준 150 kWh/m²/yr | SSOT: energy_results</div>
+        <div id="ap-district-loading" style="color:#aaa;text-align:center;padding:20px">로딩 중...</div>
+        <table class="ap-table" id="ap-district-table" style="display:none">
+          <thead><tr><th>구</th><th>평균 EUI</th><th>ZEB 달성률</th><th>건물수</th></tr></thead>
+          <tbody id="ap-district-tbody"></tbody>
+        </table>
+      </div>
+      <!-- 건물 비교 탭 -->
+      <div id="ap-body-compare" style="display:none">
+        <div style="color:#888;font-size:11px;margin-bottom:8px">건물을 클릭하면 비교 목록에 추가됩니다</div>
+        <div id="ap-compare-slots" style="display:flex;gap:6px;margin-bottom:8px">
+          <div style="flex:1;background:#f5f7fa;border-radius:6px;padding:8px;min-height:60px">
+            <div style="font-size:10px;color:#888">건물 1</div>
+            <div id="ap-cmp1-name" style="font-size:11px;font-weight:600;margin-top:4px;color:#555">-</div>
+            <button id="ap-cmp1-clear" style="display:none;font-size:10px;color:#ef4444;background:none;border:none;cursor:pointer;padding:0;margin-top:2px" onclick="clearCompare(1)">제거</button>
+          </div>
+          <div style="flex:1;background:#f5f7fa;border-radius:6px;padding:8px;min-height:60px">
+            <div style="font-size:10px;color:#888">건물 2</div>
+            <div id="ap-cmp2-name" style="font-size:11px;font-weight:600;margin-top:4px;color:#555">-</div>
+            <button id="ap-cmp2-clear" style="display:none;font-size:10px;color:#ef4444;background:none;border:none;cursor:pointer;padding:0;margin-top:2px" onclick="clearCompare(2)">제거</button>
+          </div>
+        </div>
+        <button id="ap-cmp-run" style="width:100%;padding:7px;background:#3b82f6;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600" onclick="runCompare()">비교하기</button>
+        <div id="ap-compare-result" style="margin-top:10px"></div>
+      </div>
+      <!-- 그린리모델링 탭 -->
+      <div id="ap-body-retrofit" style="display:none">
+        <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap">
+          <select id="ap-rt-sigungu" style="flex:1;min-width:80px;padding:4px;font-size:11px;border:1px solid #ddd;border-radius:4px">
+            <option value="">전체 구</option>
+          </select>
+          <select id="ap-rt-vintage" style="flex:1;min-width:80px;padding:4px;font-size:11px;border:1px solid #ddd;border-radius:4px">
+            <option value="">전체 연대</option>
+            <option value="pre-1980">~1980년</option>
+            <option value="1980-2000">1980~2000</option>
+            <option value="2001-2010">2001~2010</option>
+            <option value="post-2010">2010년~</option>
+          </select>
+          <button onclick="loadRetrofitPriority()" style="padding:4px 10px;background:#3b82f6;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px">조회</button>
+        </div>
+        <div id="ap-retrofit-loading" style="display:none;color:#aaa;text-align:center;padding:12px">로딩 중...</div>
+        <table class="ap-table" id="ap-retrofit-table" style="display:none">
+          <thead><tr><th>#</th><th>건물</th><th>EUI</th><th>총소비(MWh/yr)</th></tr></thead>
+          <tbody id="ap-retrofit-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
 
   <!-- F2 화재 확산 시뮬레이션 패널 -->
   <div id="spread-panel">
@@ -439,6 +560,11 @@
     <div id="applied-faces"></div>
   </div>
 
+  <!-- 모바일 안내 배너 (CSS @media로 표시/숨김) -->
+  <div id="mobile-banner">
+    📱 3D 건물은 PC 환경에서 최적화됩니다. 모바일에서는 <a href="#" onclick="enable2DForMobile();return false;">2D 지도</a>를 이용해주세요.
+  </div>
+
   <!-- Search -->
   <div id="search-bar">
     <input type="text" id="search-input" placeholder="건물명 또는 주소 검색..." />
@@ -503,6 +629,24 @@
   </div>
 
   <script>
+    const VWORLD_CONFIG = {
+      FIRE_RISK_ZOOM_THRESHOLD: 5000,
+      CO2_ZOOM_THRESHOLD: 8000,
+      SPREAD_MAX_STEPS: 15,
+      EARTH_METERS_PER_DEGREE: 111000,
+      STATION_ICON_SIZE: 40,
+      CO2_THRESHOLDS: [26, 31, 36, 42],
+      COLORS: {
+        RISK_HIGH: '#ff4444',
+        RISK_MED: '#ff8c00',
+        RISK_LOW: '#22c55e',
+        CO2_VERY_HIGH: '#7f1d1d',
+        CO2_HIGH: '#ef4444',
+        CO2_MED: '#f97316',
+        CO2_LOW: '#22c55e',
+      }
+    };
+
     const API = "/api/v1";
     let currentAbort = null;
     let _weatherWs = null;
@@ -595,6 +739,21 @@
       viewer.scene.debugShowFramesPerSecond = false;
       viewer.scene.useDepthPicking = true;
 
+      // 모바일 감지: 터치 장치에서 자동으로 2D 탑뷰 전환
+      const isMobile = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0) || (window.innerWidth < 768);
+      if (isMobile) {
+        // 2D 탑뷰: 서울 전체가 한눈에 보이는 고도 + 수직 내려보기
+        viewer.camera.flyTo({
+          destination: Cesium.Cartesian3.fromDegrees(126.978, 37.560, 30000),
+          orientation: { heading: 0, pitch: Cesium.Math.toRadians(-90), roll: 0 },
+          duration: 0,
+        });
+        viewer.scene.screenSpaceCameraController.enableTilt = false;
+        is2DMode = true;
+        const btn = document.getElementById('mode-btn');
+        if (btn) { btn.textContent = '🏙 3D 보기'; btn.style.background = '#0ea5e9'; btn.style.color = '#fff'; }
+      }
+
       // Load stats
       fetch(API + "/buildings/stats")
         .then((r) => r.json())
@@ -662,9 +821,9 @@
     let fireRiskAbortCtrl  = null;
 
     function fireRiskColor(grade) {
-      if (grade === 'HIGH')   return Cesium.Color.fromCssColorString('#ff4444').withAlpha(0.9);
-      if (grade === 'MEDIUM') return Cesium.Color.fromCssColorString('#ff8c00').withAlpha(0.75);
-      return Cesium.Color.fromCssColorString('#22c55e').withAlpha(0.7);
+      if (grade === 'HIGH')   return Cesium.Color.fromCssColorString(VWORLD_CONFIG.COLORS.RISK_HIGH).withAlpha(0.9);
+      if (grade === 'MEDIUM') return Cesium.Color.fromCssColorString(VWORLD_CONFIG.COLORS.RISK_MED).withAlpha(0.75);
+      return Cesium.Color.fromCssColorString(VWORLD_CONFIG.COLORS.RISK_LOW).withAlpha(0.7);
     }
 
     async function loadFireRiskLayer() {
@@ -677,7 +836,7 @@
       clearFireRiskLayer();
       // 너무 높이서 조회하면 점이 너무 작음 → 고도 5km 이상이면 카메라 이동 완료 후 재시도
       const camHeight = viewer.camera.positionCartographic.height;
-      if (camHeight > 5000) {
+      if (camHeight > VWORLD_CONFIG.FIRE_RISK_ZOOM_THRESHOLD) {
         document.getElementById('fire-status').textContent = '더 가까이 확대하면 건물별 위험도를 표시합니다';
         if (fireMoveEndRemover) { fireMoveEndRemover(); fireMoveEndRemover = null; }
         fireMoveEndRemover = viewer.camera.moveEnd.addEventListener(() => {
@@ -734,11 +893,12 @@
     function co2Color(value) {
       // 실제 데이터 분포 기반 임계값 (kgCO₂/m²·yr)
       // p10≈26, p50≈34, p90≈39, max~330
-      if (value <= 26)  return Cesium.Color.fromCssColorString('#22c55e').withAlpha(0.85);  // 저배출
-      if (value <= 31)  return Cesium.Color.fromCssColorString('#84cc16').withAlpha(0.85);  // 평균이하
-      if (value <= 36)  return Cesium.Color.fromCssColorString('#f59e0b').withAlpha(0.85);  // 평균
-      if (value <= 42)  return Cesium.Color.fromCssColorString('#f97316').withAlpha(0.85);  // 평균이상
-      return Cesium.Color.fromCssColorString('#ef4444').withAlpha(0.90);                    // 고배출
+      const t = VWORLD_CONFIG.CO2_THRESHOLDS;
+      if (value <= t[0]) return Cesium.Color.fromCssColorString(VWORLD_CONFIG.COLORS.CO2_LOW).withAlpha(0.85);      // 저배출
+      if (value <= t[1]) return Cesium.Color.fromCssColorString('#84cc16').withAlpha(0.85);                          // 평균이하
+      if (value <= t[2]) return Cesium.Color.fromCssColorString('#f59e0b').withAlpha(0.85);                          // 평균
+      if (value <= t[3]) return Cesium.Color.fromCssColorString(VWORLD_CONFIG.COLORS.CO2_MED).withAlpha(0.85);      // 평균이상
+      return Cesium.Color.fromCssColorString(VWORLD_CONFIG.COLORS.CO2_HIGH).withAlpha(0.90);                        // 고배출
     }
 
     async function loadCo2Layer() {
@@ -749,7 +909,7 @@
       const signal = co2AbortCtrl.signal;
       clearCo2Layer();
       const camHeight = viewer.camera.positionCartographic.height;
-      if (camHeight > 8000) {
+      if (camHeight > VWORLD_CONFIG.CO2_ZOOM_THRESHOLD) {
         document.getElementById('co2-status').textContent = '더 가까이 확대하면 CO₂ 데이터를 표시합니다';
         if (co2MoveEndRemover) { co2MoveEndRemover(); co2MoveEndRemover = null; }
         co2MoveEndRemover = viewer.camera.moveEnd.addEventListener(() => {
@@ -776,13 +936,13 @@
           co2PointCollection.add({
             position: Cesium.Cartesian3.fromDegrees(f.lng, f.lat, 5),
             color: co2Color(f.co2),
-            pixelSize: f.co2 > 42 ? 10 : 7,
+            pixelSize: f.co2 > VWORLD_CONFIG.CO2_THRESHOLDS[3] ? 10 : 7,
             outlineColor: Cesium.Color.WHITE.withAlpha(0.4),
             outlineWidth: 1,
             disableDepthTestDistance: Number.POSITIVE_INFINITY,
           });
         });
-        const highCnt = (data.features || []).filter(f => f.co2 > 42).length;
+        const highCnt = (data.features || []).filter(f => f.co2 > VWORLD_CONFIG.CO2_THRESHOLDS[3]).length;
         document.getElementById('co2-status').textContent =
           `조회 ${data.count.toLocaleString()}건 · 고배출 ${highCnt.toLocaleString()}건`;
       } catch(e) {
@@ -986,8 +1146,8 @@
         const resp = await fetch(`${API}/fire/risk/${pnu}`);
         if (!resp.ok) { document.getElementById('p-fire-risk').style.display = 'none'; return; }
         const risk = await resp.json();
-        const color = risk.risk_grade === 'HIGH' ? '#ff4444'
-                    : risk.risk_grade === 'MEDIUM' ? '#ff8c00' : '#22c55e';
+        const color = risk.risk_grade === 'HIGH' ? VWORLD_CONFIG.COLORS.RISK_HIGH
+                    : risk.risk_grade === 'MEDIUM' ? VWORLD_CONFIG.COLORS.RISK_MED : VWORLD_CONFIG.COLORS.RISK_LOW;
         const label = risk.risk_grade === 'HIGH' ? '고위험'
                     : risk.risk_grade === 'MEDIUM' ? '중위험' : '저위험';
         const el = document.getElementById('p-fire-risk');
@@ -1020,8 +1180,8 @@
         const data = await resp.json();
         const s = data.nearest_stations[0];
         if (!s) { el.style.display = 'none'; return; }
-        const timeColor = s.est_response_min <= 5 ? '#22c55e'
-                        : s.est_response_min <= 10 ? '#ff8c00' : '#ff4444';
+        const timeColor = s.est_response_min <= 5 ? VWORLD_CONFIG.COLORS.RISK_LOW
+                        : s.est_response_min <= 10 ? VWORLD_CONFIG.COLORS.RISK_MED : VWORLD_CONFIG.COLORS.RISK_HIGH;
         el.innerHTML =
           '🚒 최근접 소방서: <b>' + escapeHtml(s.name) + '</b> ' +
           '(<span style="color:' + timeColor + ';font-weight:bold">' + s.est_response_min + '분</span>' +
@@ -1243,8 +1403,8 @@
         let op1 = p1, op2 = p2;
         if (edgeLenM > 0) {
           // 외부 법선 방향: (edgeDyM, -edgeDxM) → 도(degree) 단위로 변환
-          const offsetLng = edgeDyM / edgeLenM * 1.5 / (111000 * cosLat);
-          const offsetLat = -edgeDxM / edgeLenM * 1.5 / 111000;
+          const offsetLng = edgeDyM / edgeLenM * 1.5 / (VWORLD_CONFIG.EARTH_METERS_PER_DEGREE * cosLat);
+          const offsetLat = -edgeDxM / edgeLenM * 1.5 / VWORLD_CONFIG.EARTH_METERS_PER_DEGREE;
           op1 = [p1[0] + offsetLng, p1[1] + offsetLat];
           op2 = [p2[0] + offsetLng, p2[1] + offsetLat];
         }
@@ -1318,6 +1478,8 @@
     let _panelPnu = null;
 
     function showPanel(detail) {
+      // 분석 패널과 건물 패널은 같은 위치(right:12px)에 겹치므로 분석 패널 먼저 닫기
+      if (analysisPanelOpen) toggleAnalysisPanel();
       const p = detail.properties;
       _panelPnu = p.pnu || null;
       // 리트로핏 패널 초기화
@@ -1325,7 +1487,23 @@
       document.getElementById("p-retrofit").style.display =
         (p.energy && p.energy.eui_kwh_m2 != null) ? "" : "none";
       document.getElementById("p-name").textContent = p.building_name || "건물 정보";
-      document.getElementById("p-grade").textContent = p.energy_grade || "-";
+      const GRADE_STYLE = {
+        "1+++": { bg: "#14532d", color: "#fff", label: "1+++" },
+        "1++":  { bg: "#16a34a", color: "#fff", label: "1++"  },
+        "1+":   { bg: "#4ade80", color: "#14532d", label: "1+" },
+        "1":    { bg: "#a3e635", color: "#365314", label: "1"  },
+        "2":    { bg: "#facc15", color: "#713f12", label: "2"  },
+        "3":    { bg: "#fb923c", color: "#7c2d12", label: "3"  },
+        "4":    { bg: "#ef4444", color: "#fff",    label: "4"  },
+        "5":    { bg: "#991b1b", color: "#fff",    label: "5"  },
+      };
+      const gradeEl = document.getElementById("p-grade");
+      const gs = GRADE_STYLE[p.energy_grade];
+      if (gs) {
+        gradeEl.innerHTML = `<span style="display:inline-block;padding:2px 10px;border-radius:10px;background:${gs.bg};color:${gs.color};font-weight:700;font-size:14px">${gs.label}</span>`;
+      } else {
+        gradeEl.textContent = p.energy_grade || "-";
+      }
       const eui = p.energy ? p.energy.eui_kwh_m2 : null;
       document.getElementById("p-energy").textContent = eui != null ? eui.toFixed(1) : (p.total_energy ? Math.round(p.total_energy) : "-");
 
@@ -1409,6 +1587,26 @@
         document.getElementById("p-energy-chart").innerHTML = "";
       }
 
+      // 비교 추가 버튼 (분석 패널 연동)
+      const existingCmpBtn = document.getElementById('p-compare-btn');
+      if (existingCmpBtn) existingCmpBtn.remove();
+      const cmpBtn = document.createElement('button');
+      cmpBtn.id = 'p-compare-btn';
+      cmpBtn.textContent = '+ 비교에 추가';
+      cmpBtn.style.cssText = 'margin-top:8px;width:100%;padding:5px;background:#eff6ff;color:#2563eb;border:1px solid #bfdbfe;border-radius:5px;cursor:pointer;font-size:11px';
+      cmpBtn.onclick = () => {
+        const name = p.building_name || p.pnu;
+        addToCompare(p.pnu, name);
+        // 분석 패널이 닫혀 있으면 열기 + 비교 탭으로
+        if (!analysisPanelOpen) toggleAnalysisPanel();
+        switchApTab('compare');
+        cmpBtn.textContent = '✓ 추가됨';
+        cmpBtn.style.background = '#dcfce7';
+        cmpBtn.style.color = '#16a34a';
+        cmpBtn.style.border = '1px solid #86efac';
+      };
+      document.getElementById('panel').appendChild(cmpBtn);
+
       document.getElementById("panel").style.display = "block";
     }
 
@@ -1476,15 +1674,24 @@
       }
     }
 
+    const ENERGY_CHIP_COLOR = {
+      "1+++": "#14532d", "1++": "#16a34a", "1+": "#4ade80",
+      "1":    "#a3e635", "2":   "#facc15", "3": "#fb923c",
+      "4":    "#ef4444", "5":   "#991b1b",
+    };
     function renderChips(containerId, values, selectedSet) {
       const container = document.getElementById(containerId);
       if (!values || !values.length) {
         container.innerHTML = '<span class="f-chip no-data">데이터 없음</span>';
         return;
       }
+      const isEnergy = containerId === 'chips-energy';
       container.innerHTML = values.map(v => {
         const safe = v.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-        return `<span class="f-chip" data-value="${safe}" onclick="toggleChip(this,'${containerId}')">${v}</span>`;
+        const dot = isEnergy && ENERGY_CHIP_COLOR[v]
+          ? `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${ENERGY_CHIP_COLOR[v]};margin-right:4px;vertical-align:middle"></span>`
+          : '';
+        return `<span class="f-chip" data-value="${safe}" onclick="toggleChip(this,'${containerId}')">${dot}${v}</span>`;
       }).join('');
     }
 
@@ -1788,6 +1995,294 @@
     // ── Phase 3.5: 2D/3D 전환 ───────────────────────────────────────────────
     // VWorld는 Cesium scene mode 변경 미지원 → 카메라 각도로 2D 효과 구현
     const SEOUL_CENTER = { lng: 126.978, lat: 37.560 };
+
+    // ── Phase 5: 분석 패널 ──────────────────────────────────────────────────────
+    let analysisPanelOpen = false;
+    let apCurrentTab = 'district';
+    let districtDataCache = null;
+    let comparePnus = [null, null];
+    let compareNames = ['', ''];
+
+    function toggleAnalysisPanel() {
+      analysisPanelOpen = !analysisPanelOpen;
+      const el = document.getElementById('analysis-panel');
+      el.style.display = analysisPanelOpen ? 'block' : 'none';
+      if (analysisPanelOpen) {
+        // 건물 상세 패널 닫기
+        document.getElementById('panel').style.display = 'none';
+        // 처음 열 때만 초기 위치(right:12px) 유지 — 이미 드래그한 경우 left/top 유지
+        if (!el.style.left) {
+          el.style.right = '12px';
+          el.style.top   = '12px';
+        }
+      }
+      document.getElementById('analysis-btn').style.background =
+        analysisPanelOpen ? '#3b82f6' : 'rgba(255,255,255,0.92)';
+      document.getElementById('analysis-btn').style.color =
+        analysisPanelOpen ? '#fff' : '#333';
+      if (analysisPanelOpen && apCurrentTab === 'district' && !districtDataCache) {
+        loadDistrictStats();
+      }
+    }
+
+    // ── 분석 패널 드래그 이동 ────────────────────────────────────────────────
+    (function initAnalysisPanelDrag() {
+      const panel  = document.getElementById('analysis-panel');
+      const handle = panel.querySelector('.ap-header');
+      let dragging = false, startX, startY, startLeft, startTop;
+
+      function toAbsolute() {
+        // right 기반 위치를 left 기반으로 전환 (드래그 전 1회)
+        if (!panel.style.left) {
+          const rect = panel.getBoundingClientRect();
+          panel.style.left  = rect.left + 'px';
+          panel.style.top   = rect.top  + 'px';
+          panel.style.right = 'auto';
+        }
+      }
+
+      handle.addEventListener('mousedown', e => {
+        if (e.target.closest('span[onclick]')) return; // × 버튼 클릭 제외
+        toAbsolute();
+        dragging = true;
+        startX = e.clientX; startY = e.clientY;
+        startLeft = parseInt(panel.style.left); startTop = parseInt(panel.style.top);
+        document.body.style.userSelect = 'none';
+        e.preventDefault();
+      });
+
+      document.addEventListener('mousemove', e => {
+        if (!dragging) return;
+        const dx = e.clientX - startX, dy = e.clientY - startY;
+        const maxLeft = window.innerWidth  - panel.offsetWidth  - 4;
+        const maxTop  = window.innerHeight - panel.offsetHeight - 4;
+        panel.style.left = Math.max(4, Math.min(maxLeft, startLeft + dx)) + 'px';
+        panel.style.top  = Math.max(4, Math.min(maxTop,  startTop  + dy)) + 'px';
+      });
+
+      document.addEventListener('mouseup', () => {
+        if (!dragging) return;
+        dragging = false;
+        document.body.style.userSelect = '';
+      });
+
+      // 터치 지원
+      handle.addEventListener('touchstart', e => {
+        if (e.target.closest('span[onclick]')) return;
+        toAbsolute();
+        dragging = true;
+        const t = e.touches[0];
+        startX = t.clientX; startY = t.clientY;
+        startLeft = parseInt(panel.style.left); startTop = parseInt(panel.style.top);
+        e.preventDefault();
+      }, { passive: false });
+
+      document.addEventListener('touchmove', e => {
+        if (!dragging) return;
+        const t = e.touches[0];
+        const dx = t.clientX - startX, dy = t.clientY - startY;
+        const maxLeft = window.innerWidth  - panel.offsetWidth  - 4;
+        const maxTop  = window.innerHeight - panel.offsetHeight - 4;
+        panel.style.left = Math.max(4, Math.min(maxLeft, startLeft + dx)) + 'px';
+        panel.style.top  = Math.max(4, Math.min(maxTop,  startTop  + dy)) + 'px';
+      }, { passive: true });
+
+      document.addEventListener('touchend', () => { dragging = false; });
+    })();
+    // ─────────────────────────────────────────────────────────────────────────
+
+    function switchApTab(tab) {
+      apCurrentTab = tab;
+      ['district','compare','retrofit'].forEach(t => {
+        document.getElementById('ap-tab-' + t).classList.toggle('active', t === tab);
+        document.getElementById('ap-body-' + t).style.display = t === tab ? '' : 'none';
+      });
+      if (tab === 'district' && !districtDataCache) loadDistrictStats();
+      if (tab === 'retrofit' && document.getElementById('ap-rt-sigungu').options.length === 1) {
+        // 구 목록 채우기 (district stats 로드 후)
+        loadDistrictStatsForFilter();
+      }
+    }
+
+    function loadDistrictStats() {
+      document.getElementById('ap-district-loading').style.display = '';
+      document.getElementById('ap-district-table').style.display = 'none';
+      fetch(API + '/buildings/district-stats')
+        .then(r => r.json())
+        .then(data => {
+          districtDataCache = data;
+          renderDistrictTable(data);
+          // 구 필터 옵션 채우기
+          const sel = document.getElementById('ap-rt-sigungu');
+          data.districts.forEach(d => {
+            const opt = document.createElement('option');
+            opt.value = d.sigungu_cd;
+            opt.textContent = d.name;
+            sel.appendChild(opt);
+          });
+        })
+        .catch(() => {
+          document.getElementById('ap-district-loading').textContent = '데이터 로드 실패';
+        });
+    }
+
+    function loadDistrictStatsForFilter() {
+      if (districtDataCache) return; // 이미 로드됨
+      loadDistrictStats();
+    }
+
+    function renderDistrictTable(data) {
+      document.getElementById('ap-district-loading').style.display = 'none';
+      document.getElementById('ap-district-table').style.display = '';
+      const maxEui = Math.max(...data.districts.map(d => d.avg_eui || 0));
+      const tbody = document.getElementById('ap-district-tbody');
+      tbody.innerHTML = '';
+      data.districts.forEach(d => {
+        const fillPct = maxEui > 0 ? Math.round((d.avg_eui || 0) / maxEui * 100) : 0;
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${d.name}</td>
+          <td>
+            ${d.avg_eui != null ? d.avg_eui.toFixed(0) : '-'}
+            <div class="eui-bar"><div class="eui-bar-fill" style="width:${fillPct}%"></div></div>
+          </td>
+          <td>${d.zeb_pct}%</td>
+          <td>${(d.building_count||0).toLocaleString()}</td>
+        `;
+        tr.onclick = () => flyToDistrict(d);
+        tbody.appendChild(tr);
+      });
+    }
+
+    function flyToDistrict(d) {
+      if (!ws3d?.viewer || !d.center_lng || !d.center_lat) return;
+      ws3d.viewer.camera.flyTo({
+        destination: Cesium.Cartesian3.fromDegrees(d.center_lng, d.center_lat, 8000),
+        orientation: { heading: 0, pitch: Cesium.Math.toRadians(-60), roll: 0 },
+        duration: 1.5,
+      });
+    }
+
+    // ── 건물 비교 ────────────────────────────────────────────────────────────
+    // 패널에서 클릭된 PNU를 비교 슬롯에 추가 (showPanel()에서 호출)
+    function addToCompare(pnu, name) {
+      const slot = comparePnus[0] == null ? 0 : (comparePnus[1] == null ? 1 : -1);
+      if (slot === -1) {
+        // 슬롯 가득 — 1번 슬롯 교체
+        comparePnus[0] = comparePnus[1]; compareNames[0] = compareNames[1];
+        comparePnus[1] = pnu; compareNames[1] = name;
+      } else {
+        comparePnus[slot] = pnu; compareNames[slot] = name;
+      }
+      updateCompareSlots();
+    }
+
+    function clearCompare(n) {
+      comparePnus[n-1] = null; compareNames[n-1] = '';
+      document.getElementById('ap-compare-result').innerHTML = '';
+      updateCompareSlots();
+    }
+
+    function updateCompareSlots() {
+      [0,1].forEach(i => {
+        const nameEl = document.getElementById(`ap-cmp${i+1}-name`);
+        const clrBtn = document.getElementById(`ap-cmp${i+1}-clear`);
+        nameEl.textContent = compareNames[i] || '-';
+        clrBtn.style.display = comparePnus[i] ? '' : 'none';
+      });
+    }
+
+    function runCompare() {
+      if (!comparePnus[0] || !comparePnus[1]) {
+        alert('건물 2개를 선택해주세요. 건물을 클릭하면 상세 패널에서 "비교 추가" 버튼을 누르세요.');
+        return;
+      }
+      const resultEl = document.getElementById('ap-compare-result');
+      resultEl.innerHTML = '<div style="color:#aaa;text-align:center">로딩 중...</div>';
+      fetch(`${API}/buildings/compare?pnu1=${comparePnus[0]}&pnu2=${comparePnus[1]}`)
+        .then(r => r.json())
+        .then(renderCompareResult)
+        .catch(() => { resultEl.innerHTML = '<div style="color:#ef4444">로드 실패</div>'; });
+    }
+
+    function renderCompareResult(data) {
+      const el = document.getElementById('ap-compare-result');
+      const b1 = data.building1, b2 = data.building2;
+      const diff = data.diff;
+      const fmt = v => v != null ? v.toFixed(1) : '-';
+      const diffStr = v => v == null ? '' : (v > 0 ? `<span style="color:#ef4444">+${v.toFixed(1)}</span>` : `<span style="color:#16a34a">${v.toFixed(1)}</span>`);
+      el.innerHTML = `
+        <table class="ap-table" style="margin-top:4px">
+          <thead><tr><th>항목</th><th>${escapeHtml(b1.building_name||b1.pnu)}</th><th>${escapeHtml(b2.building_name||b2.pnu)}</th><th>차이</th></tr></thead>
+          <tbody>
+            <tr><td>EUI (kWh/m²)</td><td>${fmt(b1.eui_kwh_m2)}</td><td>${fmt(b2.eui_kwh_m2)}</td><td>${diffStr(diff.eui_kwh_m2)}</td></tr>
+            <tr><td>ZEB 갭</td><td>${fmt(b1.zeb_gap)}</td><td>${fmt(b2.zeb_gap)}</td><td></td></tr>
+            <tr><td>CO₂ (kg/m²)</td><td>${fmt(b1.co2_kg_m2)}</td><td>${fmt(b2.co2_kg_m2)}</td><td>${diffStr(diff.co2_kg_m2)}</td></tr>
+            <tr><td>연면적 (m²)</td><td>${b1.total_area!=null?b1.total_area.toFixed(0):'-'}</td><td>${b2.total_area!=null?b2.total_area.toFixed(0):'-'}</td><td>${diffStr(diff.total_area)}</td></tr>
+            <tr><td>건축년도</td><td>${b1.built_year||'-'}</td><td>${b2.built_year||'-'}</td><td>${diffStr(diff.built_year)}</td></tr>
+            <tr><td>용도</td><td>${escapeHtml(b1.usage_type||'-')}</td><td>${escapeHtml(b2.usage_type||'-')}</td><td></td></tr>
+            <tr><td>에너지등급</td><td>${b1.energy_grade||'-'}</td><td>${b2.energy_grade||'-'}</td><td></td></tr>
+            <tr><td>데이터 출처</td>
+              <td><span class="badge-tier tier-${b1.data_tier}">Tier ${b1.data_tier}</span></td>
+              <td><span class="badge-tier tier-${b2.data_tier}">Tier ${b2.data_tier}</span></td>
+              <td></td></tr>
+          </tbody>
+        </table>
+        <div style="font-size:10px;color:#aaa;margin-top:6px">ZEB 기준: ${data.zeb_threshold} kWh/m²/yr | SSOT: energy_results</div>
+      `;
+    }
+
+    // ── 그린리모델링 우선순위 ─────────────────────────────────────────────────
+    function loadRetrofitPriority() {
+      const sigungu = document.getElementById('ap-rt-sigungu').value;
+      const vintage = document.getElementById('ap-rt-vintage').value;
+      let url = `${API}/buildings/retrofit-priority?limit=20`;
+      if (sigungu) url += `&sigungu_cd=${sigungu}`;
+      if (vintage) url += `&vintage=${encodeURIComponent(vintage)}`;
+
+      document.getElementById('ap-retrofit-loading').style.display = '';
+      document.getElementById('ap-retrofit-table').style.display = 'none';
+
+      fetch(url)
+        .then(r => r.json())
+        .then(data => {
+          document.getElementById('ap-retrofit-loading').style.display = 'none';
+          document.getElementById('ap-retrofit-table').style.display = '';
+          const tbody = document.getElementById('ap-retrofit-tbody');
+          tbody.innerHTML = '';
+          data.buildings.forEach(b => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+              <td>${b.rank}</td>
+              <td>
+                <div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100px">${escapeHtml(b.building_name||b.pnu)}</div>
+                <div style="color:#888;font-size:10px">${escapeHtml(b.district_name)} · ${b.built_year||'-'}년</div>
+              </td>
+              <td style="color:#ef4444;font-weight:600">${b.eui_kwh_m2.toFixed(0)}</td>
+              <td>${(b.total_kwh_yr/1000).toFixed(0)}</td>
+            `;
+            tr.onclick = () => {
+              if (b.lng && b.lat && ws3d?.viewer) {
+                ws3d.viewer.camera.flyTo({
+                  destination: Cesium.Cartesian3.fromDegrees(b.lng, b.lat, 500),
+                  orientation: { heading: 0, pitch: Cesium.Math.toRadians(-60), roll: 0 },
+                  duration: 1.5,
+                });
+              }
+            };
+            tbody.appendChild(tr);
+          });
+        })
+        .catch(() => {
+          document.getElementById('ap-retrofit-loading').textContent = '로드 실패';
+        });
+    }
+
+    // 모바일 배너에서 호출: 2D 전환 + 배너 닫기
+    function enable2DForMobile() {
+      document.getElementById('mobile-banner').style.display = 'none';
+      if (!is2DMode) toggle2DMode();
+    }
 
     function toggle2DMode() {
       if (!ws3d?.viewer) return;
